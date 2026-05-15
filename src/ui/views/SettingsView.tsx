@@ -31,6 +31,8 @@ export function SettingsView() {
   const shifts = useAppStore((store) => store.shifts);
   const saveShift = useAppStore((store) => store.saveShift);
   const [apiKey, setApiKey] = useState("");
+  const [keyStatus, setKeyStatus] = useState<"idle" | "saving" | "saved" | "cleared" | "error">("idle");
+  const [keyMessage, setKeyMessage] = useState("");
   const [shiftForm, setShiftForm] = useState<Shift>(shifts[0] ?? DEFAULT_SHIFT);
 
   useEffect(() => {
@@ -41,9 +43,34 @@ export function SettingsView() {
 
   async function submitKey(event: FormEvent) {
     event.preventDefault();
-    if (!apiKey.trim()) return;
-    await saveApiKey(apiKey);
-    setApiKey("");
+    if (!apiKey.trim()) {
+      setKeyStatus("error");
+      setKeyMessage("Enter an OpenAI API key before saving.");
+      return;
+    }
+    setKeyStatus("saving");
+    setKeyMessage("Saving API key locally...");
+    try {
+      await saveApiKey(apiKey);
+      setApiKey("");
+      setKeyStatus("saved");
+      setKeyMessage("API key saved locally. AI and voice features can now use it.");
+    } catch (error) {
+      setKeyStatus("error");
+      setKeyMessage(error instanceof Error ? error.message : "Could not save API key.");
+    }
+  }
+
+  async function handleClearApiKey() {
+    try {
+      await clearApiKey();
+      setApiKey("");
+      setKeyStatus("cleared");
+      setKeyMessage("API key cleared.");
+    } catch (error) {
+      setKeyStatus("error");
+      setKeyMessage(error instanceof Error ? error.message : "Could not clear API key.");
+    }
   }
 
   async function submitShift(event: FormEvent) {
@@ -126,7 +153,15 @@ export function SettingsView() {
       </Card>
 
       <Card>
-        <SectionTitle title="AI & Voice" subtitle="API key is stored in chrome.storage.local and hidden from content scripts." />
+        <SectionTitle
+          title="AI & Voice"
+          subtitle="API key is stored locally and hidden from content scripts."
+          action={
+            <span className={`rounded border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.08em] ${hasApiKey ? "border-oc-success/45 bg-oc-success/10 text-oc-success" : "border-oc-warning/45 bg-oc-warning/10 text-oc-warning"}`}>
+              {hasApiKey ? "Key Saved" : "No Key"}
+            </span>
+          }
+        />
         <div className="grid gap-3 md:grid-cols-2">
           <label className="text-xs text-oc-muted">
             AI Mode
@@ -158,9 +193,23 @@ export function SettingsView() {
             <KeyRound size={14} className="text-oc-muted" />
             <input value={apiKey} onChange={(event) => setApiKey(event.target.value)} type="password" placeholder={hasApiKey ? "API key saved" : "OpenAI API key"} className="min-w-0 flex-1 bg-transparent text-sm outline-none" />
           </div>
-          <Button type="submit"><Save size={14} /> Save Key</Button>
-          <Button type="button" variant="danger" onClick={clearApiKey}><Trash2 size={14} /> Clear</Button>
+          <Button type="submit" disabled={keyStatus === "saving" || !apiKey.trim()}><Save size={14} /> {keyStatus === "saving" ? "Saving..." : "Save Key"}</Button>
+          <Button type="button" variant="danger" onClick={handleClearApiKey}><Trash2 size={14} /> Clear</Button>
         </form>
+        <p
+          aria-live="polite"
+          className={`mt-2 text-xs ${
+            keyStatus === "saved"
+              ? "text-oc-success"
+              : keyStatus === "cleared"
+                ? "text-oc-warning"
+                : keyStatus === "error"
+                  ? "text-oc-critical"
+                  : "text-oc-muted"
+          }`}
+        >
+          {keyMessage || (hasApiKey ? "A key is saved locally. Paste a new key to replace it." : "No key saved yet. AI features will use local fallbacks.")}
+        </p>
       </Card>
 
       <Card>

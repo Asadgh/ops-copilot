@@ -267,6 +267,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   saveApiKey: async (value) => {
     await setOpenAIApiKey(value);
+    if (!(await hasOpenAIApiKey())) {
+      throw new Error("API key was not saved. Check extension storage permissions.");
+    }
     await get().load();
   },
 

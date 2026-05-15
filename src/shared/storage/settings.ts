@@ -70,13 +70,19 @@ export async function getOpenAIApiKey(): Promise<string | undefined> {
 }
 
 export async function setOpenAIApiKey(value: string): Promise<void> {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error("OpenAI API key cannot be empty.");
+  }
   if (hasChromeStorage()) {
-    await chrome.storage.local.set({ [OPENAI_API_KEY_STORAGE_KEY]: value.trim() });
+    await chrome.storage.local.set({ [OPENAI_API_KEY_STORAGE_KEY]: trimmed });
     return;
   }
   if (typeof localStorage !== "undefined") {
-    localStorage.setItem(OPENAI_API_KEY_STORAGE_KEY, value.trim());
+    localStorage.setItem(OPENAI_API_KEY_STORAGE_KEY, trimmed);
+    return;
   }
+  throw new Error("No local storage backend is available for the API key.");
 }
 
 export async function clearOpenAIApiKey(): Promise<void> {
