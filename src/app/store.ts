@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { endOfToday, startOfToday } from "../shared/utils/date";
+import { endOfToday, startOfToday, toDateKey } from "../shared/utils/date";
+import { createId } from "../shared/utils/id";
 import type {
   ActivityEvent,
   AppSettings,
@@ -8,6 +9,7 @@ import type {
   ExportFormat,
   ExportPayload,
   FocusSession,
+  Reminder,
   Report,
   RuntimeResponse,
   Shift,
@@ -15,10 +17,22 @@ import type {
 } from "../shared/types";
 import { db } from "../shared/storage/db";
 import { clearOpenAIApiKey, ensureDefaultShift, getAppSettings, hasOpenAIApiKey, setOpenAIApiKey, updateAppSettings } from "../shared/storage/settings";
-import { createTask, listTasks, saveDailyPlan, startFocusSession, taskStats, updateTask } from "../shared/storage/repositories";
+import {
+  createReminder,
+  createTask,
+  listTasks,
+  saveDailyPlan,
+  saveReport,
+  saveShift,
+  startFocusSession,
+  taskStats,
+  updateReminder,
+  updateTask
+} from "../shared/storage/repositories";
 import { executeCommand as executeLocalCommand } from "../shared/services/commandExecutor";
 import { generateDailyPlan } from "../shared/services/planner";
 import { createLocalReport, exportTasks } from "../shared/services/reports";
+import { buildShutdownReport } from "../shared/services/localAi";
 import { downloadExport, hasRuntime, sendRuntimeMessage } from "../shared/chrome";
 
 export type ViewKey = "overview" | "tasks" | "plan" | "focus" | "timeline" | "reports" | "insights" | "settings";
@@ -36,6 +50,7 @@ type AppStore = {
   tasks: Task[];
   events: ActivityEvent[];
   sessions: FocusSession[];
+  reminders: Reminder[];
   plans: DailyPlan[];
   reports: Report[];
   captures: BrowserCapture[];
@@ -50,12 +65,18 @@ type AppStore = {
   createTask: (input: Partial<Task>) => Promise<Task>;
   updateTask: (id: string, patch: Partial<Task>) => Promise<Task>;
   startFocus: (taskId?: string, durationMinutes?: number) => Promise<void>;
+  scheduleReminder: (input: { taskId?: string; title: string; dueAt: number }) => Promise<void>;
+  snoozeReminder: (id: string, minutes?: number) => Promise<void>;
+  dismissReminder: (id: string) => Promise<void>;
   generatePlan: (adaptive?: boolean) => Promise<void>;
+  savePlan: (plan: DailyPlan) => Promise<void>;
   generateReport: (ai?: boolean) => Promise<void>;
+  runShutdown: (answers: Record<string, string>) => Promise<void>;
   exportData: (format: ExportFormat) => Promise<void>;
   executeCommand: (command: string) => Promise<RuntimeResponse>;
   capturePage: (taskId?: string) => Promise<void>;
   saveSettings: (patch: Partial<AppSettings>) => Promise<void>;
+  saveShift: (shift: Shift) => Promise<void>;
   saveApiKey: (value: string) => Promise<void>;
   clearApiKey: () => Promise<void>;
 };
@@ -85,6 +106,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   tasks: [],
   events: [],
   sessions: [],
+  reminders: [],
   plans: [],
   reports: [],
   captures: [],
@@ -100,12 +122,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
   load: async () => {
     set({ loading: true });
     await ensureDefaultShift();
-    const [settings, hasKey, tasks, events, sessions, plans, reports, captures, shifts, stats] = await Promise.all([
+    const [settings, hasKey, tasks, events, sessions, reminders, plans, reports, captures, shifts, stats] = await Promise.all([
       getAppSettings(),
       hasOpenAIApiKey(),
       listTasks(),
       db.activityEvents.orderBy("timestamp").reverse().limit(80).toArray(),
       db.focusSessions.orderBy("startTime").reverse().limit(40).toArray(),
+      db.reminders.orderBy("dueAt").reverse().limit(60).toArray(),
       db.dailyPlans.orderBy("createdAt").reverse().limit(20).toArray(),
       db.reports.orderBy("createdAt").reverse().limit(20).toArray(),
       db.captures.orderBy("timestamp").reverse().limit(30).toArray(),
@@ -113,7 +136,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       taskStats()
     ]);
     applyTheme(settings);
-    set({ settings, hasApiKey: hasKey, tasks, events, sessions, plans, reports, captures, shifts, stats, loading: false });
+    set({ settings, hasApiKey: hasKey, tasks, events, sessions, reminders, plans, reports, captures, shifts, stats, loading: false });
   },
 
   createTask: async (input) => {
@@ -137,10 +160,41 @@ export const useAppStore = create<AppStore>((set, get) => ({
     await get().load();
   },
 
+  scheduleReminder: async (input) => {
+    if (hasRuntime()) {
+      await sendRuntimeMessage({ type: "SCHEDULE_REMINDER", payload: input });
+    } else {
+      await createReminder(input);
+    }
+    await get().load();
+  },
+
+  snoozeReminder: async (id, minutes = 10) => {
+    const dueAt = Date.now() + minutes * 60_000;
+    await updateReminder(id, { status: "snoozed", dueAt, snoozedUntil: dueAt });
+    if (typeof chrome !== "undefined" && chrome.alarms) {
+      await chrome.alarms.create(`reminder:${id}`, { when: dueAt });
+    }
+    await get().load();
+  },
+
+  dismissReminder: async (id) => {
+    await updateReminder(id, { status: "dismissed" });
+    if (typeof chrome !== "undefined" && chrome.alarms) {
+      await chrome.alarms.clear(`reminder:${id}`);
+    }
+    await get().load();
+  },
+
   generatePlan: async (adaptive = false) => {
     const { tasks, shifts, settings } = get();
     const plan = generateDailyPlan(tasks, shifts, adaptive ? "adaptive" : settings?.planMode ?? "assisted");
     await saveDailyPlan(plan);
+    await get().load();
+  },
+
+  savePlan: async (plan) => {
+    await saveDailyPlan({ ...plan, updatedAt: Date.now() });
     await get().load();
   },
 
@@ -150,6 +204,22 @@ export const useAppStore = create<AppStore>((set, get) => ({
     } else {
       await createLocalReport("performance", { dateFrom: startOfToday(), dateTo: endOfToday() });
     }
+    await get().load();
+  },
+
+  runShutdown: async (answers) => {
+    const [tasks, stats] = await Promise.all([listTasks({ dateFrom: startOfToday(), dateTo: endOfToday() }), taskStats()]);
+    await saveReport({
+      id: createId("report"),
+      type: "shutdown",
+      title: `Shift Shutdown - ${toDateKey()}`,
+      createdAt: Date.now(),
+      periodStart: startOfToday(),
+      periodEnd: Date.now(),
+      content: buildShutdownReport({ tasks, answers, focusMinutes: stats.focusMinutes }),
+      aiGenerated: false
+    });
+    set((state) => ({ terminal: [...state.terminal, terminalLine("success", "Shutdown report generated.")].slice(-80) }));
     await get().load();
   },
 
@@ -187,6 +257,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
   saveSettings: async (patch) => {
     const settings = await updateAppSettings(patch);
     applyTheme(settings);
+    await get().load();
+  },
+
+  saveShift: async (shift) => {
+    await saveShift(shift);
     await get().load();
   },
 

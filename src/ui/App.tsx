@@ -12,11 +12,12 @@ import {
   TimerReset
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAppStore, type ViewKey } from "../app/store";
 import { TerminalConsole } from "./components/TerminalConsole";
 import { VoiceButton } from "./components/VoiceButton";
 import { Button } from "./components/Button";
+import { NotificationCenterDialog } from "./components/NotificationCenterDialog";
 import { OverviewView } from "./views/OverviewView";
 import { TasksView } from "./views/TasksView";
 import { PlannerView } from "./views/PlannerView";
@@ -57,6 +58,9 @@ export function App({ mode }: { mode: "sidepanel" | "dashboard" }) {
   const setActiveView = useAppStore((store) => store.setActiveView);
   const settings = useAppStore((store) => store.settings);
   const stats = useAppStore((store) => store.stats);
+  const reminders = useAppStore((store) => store.reminders);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const activeReminderCount = reminders.filter((reminder) => reminder.status !== "dismissed").length;
 
   useEffect(() => {
     setMode(mode);
@@ -86,7 +90,7 @@ export function App({ mode }: { mode: "sidepanel" | "dashboard" }) {
           <span className="hidden rounded border border-oc-border bg-oc-surface px-2 py-1 text-xs text-oc-muted lg:inline">{stats.active} active</span>
           <span className="rounded border border-oc-border bg-oc-surface px-2 py-1 font-mono text-[10px] text-oc-cyan">{settings?.aiMode.toUpperCase() ?? "AI"}</span>
           <VoiceButton />
-          <Button size="icon" variant="ghost" title="Notifications" aria-label="Notifications">
+          <Button size="icon" variant={activeReminderCount ? "secondary" : "ghost"} title="Notifications" aria-label="Notifications" onClick={() => setNotificationsOpen(true)}>
             <Bell size={16} />
           </Button>
         </div>
@@ -134,6 +138,7 @@ export function App({ mode }: { mode: "sidepanel" | "dashboard" }) {
           Side panel
         </a>
       ) : null}
+      <NotificationCenterDialog open={notificationsOpen} onOpenChange={setNotificationsOpen} />
     </div>
   );
 }

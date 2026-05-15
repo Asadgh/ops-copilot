@@ -1,4 +1,5 @@
-import { CheckCircle2, Clock3, ExternalLink, Focus, NotebookPen } from "lucide-react";
+import { BellPlus, CheckCircle2, Clock3, ExternalLink, Focus, NotebookPen, Pencil } from "lucide-react";
+import { useState } from "react";
 import type { Task } from "../../shared/types";
 import { toTimeLabel } from "../../shared/utils/date";
 import { useAppStore } from "../../app/store";
@@ -6,11 +7,15 @@ import { Button } from "./Button";
 import { PriorityBadge, StatusBadge } from "./Badge";
 import { Progress } from "./Progress";
 import { cn } from "../utils";
+import { TaskEditorDialog } from "./TaskEditorDialog";
+import { ReminderDialog } from "./ReminderDialog";
 
 export function TaskCard({ task, compact = false }: { task: Task; compact?: boolean }) {
   const updateTask = useAppStore((store) => store.updateTask);
   const startFocus = useAppStore((store) => store.startFocus);
   const capturePage = useAppStore((store) => store.capturePage);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [reminderOpen, setReminderOpen] = useState(false);
   const tone = task.priority === "critical" ? "critical" : task.status === "completed" ? "success" : task.status === "blocked" ? "warning" : "blue";
   const rail =
     task.priority === "critical"
@@ -33,7 +38,9 @@ export function TaskCard({ task, compact = false }: { task: Task; compact?: bool
           <span className="font-mono text-[11px] text-oc-muted">{task.completion}%</span>
         </div>
         <div>
-          <h3 className="text-sm font-semibold leading-5 text-oc-text">{task.task}</h3>
+          <button className="text-left text-sm font-semibold leading-5 text-oc-text hover:text-oc-blue" onClick={() => setEditorOpen(true)}>
+            {task.task}
+          </button>
           <p className="mt-1 text-xs text-oc-muted">{task.location || "No location"} | Updated {toTimeLabel(task.metadata.updatedAt)}</p>
         </div>
         <Progress value={task.completion} tone={tone} />
@@ -44,11 +51,17 @@ export function TaskCard({ task, compact = false }: { task: Task; compact?: bool
         </div>
       ) : null}
       <div className="flex flex-wrap gap-1.5">
+        <Button size="sm" variant="secondary" onClick={() => setEditorOpen(true)}>
+          <Pencil size={14} /> Edit
+        </Button>
         <Button size="sm" onClick={() => startFocus(task.id, task.estimatedMinutes ?? 25)}>
           <Focus size={14} /> Focus
         </Button>
         <Button size="sm" variant="ghost" onClick={() => capturePage(task.id)}>
           <ExternalLink size={14} /> Capture
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setReminderOpen(true)}>
+          <BellPlus size={14} /> Remind
         </Button>
         <Button size="sm" variant="ghost" onClick={() => updateTask(task.id, { notes: `${task.notes ? `${task.notes}\n` : ""}Quick note added ${new Date().toLocaleTimeString()}` })}>
           <NotebookPen size={14} /> Note
@@ -61,6 +74,8 @@ export function TaskCard({ task, compact = false }: { task: Task; compact?: bool
         </Button>
       </div>
       </div>
+      <TaskEditorDialog task={task} open={editorOpen} onOpenChange={setEditorOpen} />
+      <ReminderDialog task={task} open={reminderOpen} onOpenChange={setReminderOpen} />
     </article>
   );
 }

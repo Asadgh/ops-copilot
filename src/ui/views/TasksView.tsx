@@ -6,12 +6,13 @@ import { Button } from "../components/Button";
 import { Card, SectionTitle } from "../components/Card";
 import { EmptyState } from "../components/EmptyState";
 import { TaskCard } from "../components/TaskCard";
+import { TaskEditorDialog } from "../components/TaskEditorDialog";
 
 export function TasksView() {
   const tasks = useAppStore((store) => store.tasks);
-  const createTask = useAppStore((store) => store.createTask);
   const [priority, setPriority] = useState<Priority | "all">("all");
   const [status, setStatus] = useState<TaskStatus | "all">("all");
+  const [newTaskOpen, setNewTaskOpen] = useState(false);
   const filtered = useMemo(
     () => tasks.filter((task) => (priority === "all" || task.priority === priority) && (status === "all" || task.status === status)),
     [priority, status, tasks]
@@ -23,7 +24,7 @@ export function TasksView() {
         <SectionTitle
           title="Task Board"
           subtitle="Operational work items, blockers, progress, and browser context."
-          action={<Button onClick={() => createTask({ task: "New operational task", priority: "medium" })}><Plus size={14} /> New Task</Button>}
+          action={<Button onClick={() => setNewTaskOpen(true)}><Plus size={14} /> New Task</Button>}
         />
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <SlidersHorizontal size={14} className="text-oc-muted" />
@@ -48,6 +49,7 @@ export function TasksView() {
         {filtered.map((task) => <TaskCard key={task.id} task={task} />)}
       </div>
       {!filtered.length ? <EmptyState title="No matching tasks" detail="Change filters or create a new task." /> : null}
+      <TaskEditorDialog open={newTaskOpen} onOpenChange={setNewTaskOpen} />
     </div>
   );
 }

@@ -7,8 +7,10 @@ import type {
   FocusSession,
   Priority,
   Reminder,
+  ReminderStatus,
   Report,
   ReportFilters,
+  Shift,
   Task,
   TaskStatus
 } from "../types";
@@ -229,6 +231,36 @@ export async function createReminder(input: { taskId?: string; title: string; du
     source: "system"
   });
   return reminder;
+}
+
+export async function updateReminder(id: string, patch: Partial<Reminder>): Promise<Reminder> {
+  const existing = await db.reminders.get(id);
+  if (!existing) throw new Error(`Reminder not found: ${id}`);
+  const reminder = { ...existing, ...patch };
+  await db.reminders.put(reminder);
+  if (patch.status) {
+    await addActivity({
+      type: "reminder.fired",
+      title: `Reminder ${patch.status}: ${reminder.title}`,
+      taskId: reminder.taskId,
+      source: "ui"
+    });
+  }
+  return reminder;
+}
+
+export async function setReminderStatus(id: string, status: ReminderStatus): Promise<Reminder> {
+  return updateReminder(id, { status });
+}
+
+export async function saveShift(shift: Shift): Promise<Shift> {
+  await db.shifts.put(shift);
+  await addActivity({
+    type: "system",
+    title: `Shift updated: ${shift.name}`,
+    source: "ui"
+  });
+  return shift;
 }
 
 export async function saveDailyPlan(plan: DailyPlan): Promise<DailyPlan> {

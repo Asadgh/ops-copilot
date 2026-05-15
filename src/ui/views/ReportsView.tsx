@@ -1,10 +1,12 @@
-import { Download, FileSpreadsheet, FileText, Sparkles } from "lucide-react";
+import { ClipboardCheck, Download, FileSpreadsheet, FileText, Sparkles } from "lucide-react";
+import { useState } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useAppStore } from "../../app/store";
 import { formatDuration } from "../../shared/utils/date";
 import { Button } from "../components/Button";
 import { Card, SectionTitle } from "../components/Card";
 import { EmptyState } from "../components/EmptyState";
+import { ShutdownDialog } from "../components/ShutdownDialog";
 
 export function ReportsView() {
   const stats = useAppStore((store) => store.stats);
@@ -12,6 +14,7 @@ export function ReportsView() {
   const reports = useAppStore((store) => store.reports);
   const exportData = useAppStore((store) => store.exportData);
   const generateReport = useAppStore((store) => store.generateReport);
+  const [shutdownOpen, setShutdownOpen] = useState(false);
   const chart = [
     { name: "Active", value: stats.active },
     { name: "Blocked", value: stats.blocked },
@@ -25,7 +28,12 @@ export function ReportsView() {
         <SectionTitle
           title="Reports & Analytics"
           subtitle="Export operational activity or generate performance-ready summaries."
-          action={<Button variant="primary" onClick={() => generateReport(true)}><Sparkles size={14} /> Generate AI Report</Button>}
+          action={
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => setShutdownOpen(true)}><ClipboardCheck size={14} /> Shutdown</Button>
+              <Button variant="primary" onClick={() => generateReport(true)}><Sparkles size={14} /> Generate AI Report</Button>
+            </div>
+          }
         />
         <div className="grid gap-3 md:grid-cols-3">
           <div className="rounded-md border border-oc-border bg-oc-elevated/42 p-3">
@@ -86,6 +94,7 @@ export function ReportsView() {
           </div>
         </Card>
       </div>
+      <ShutdownDialog open={shutdownOpen} onOpenChange={setShutdownOpen} />
     </div>
   );
 }

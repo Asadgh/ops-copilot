@@ -1,8 +1,9 @@
 import * as Switch from "@radix-ui/react-switch";
 import { KeyRound, Save, Trash2 } from "lucide-react";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useAppStore } from "../../app/store";
-import type { AIMode, PlanMode, ThemeMode } from "../../shared/types";
+import { DEFAULT_SHIFT } from "../../shared/constants";
+import type { AIMode, PlanMode, Shift, ThemeMode } from "../../shared/types";
 import { Button } from "../components/Button";
 import { Card, SectionTitle } from "../components/Card";
 
@@ -27,7 +28,14 @@ export function SettingsView() {
   const saveSettings = useAppStore((store) => store.saveSettings);
   const saveApiKey = useAppStore((store) => store.saveApiKey);
   const clearApiKey = useAppStore((store) => store.clearApiKey);
+  const shifts = useAppStore((store) => store.shifts);
+  const saveShift = useAppStore((store) => store.saveShift);
   const [apiKey, setApiKey] = useState("");
+  const [shiftForm, setShiftForm] = useState<Shift>(shifts[0] ?? DEFAULT_SHIFT);
+
+  useEffect(() => {
+    setShiftForm(shifts[0] ?? DEFAULT_SHIFT);
+  }, [shifts]);
 
   if (!settings) return null;
 
@@ -36,6 +44,18 @@ export function SettingsView() {
     if (!apiKey.trim()) return;
     await saveApiKey(apiKey);
     setApiKey("");
+  }
+
+  async function submitShift(event: FormEvent) {
+    event.preventDefault();
+    await saveShift(shiftForm);
+  }
+
+  function toggleDay(day: string) {
+    setShiftForm((current) => ({
+      ...current,
+      days: current.days.includes(day) ? current.days.filter((item) => item !== day) : [...current.days, day]
+    }));
   }
 
   return (
@@ -60,6 +80,49 @@ export function SettingsView() {
             </select>
           </label>
         </div>
+      </Card>
+
+      <Card>
+        <SectionTitle title="Shift Management" subtitle="Controls active-shift visibility, launcher shift-only mode, quiet hours, and shutdown prompts." />
+        <form className="grid gap-3" onSubmit={submitShift}>
+          <div className="grid gap-3 md:grid-cols-4">
+            <label className="text-xs text-oc-muted md:col-span-2">
+              Shift Name
+              <input className="mt-1 w-full rounded border border-oc-border bg-oc-bg px-3 py-2 text-sm text-oc-text" value={shiftForm.name} onChange={(event) => setShiftForm({ ...shiftForm, name: event.target.value })} />
+            </label>
+            <label className="text-xs text-oc-muted">
+              Start
+              <input className="mt-1 w-full rounded border border-oc-border bg-oc-bg px-3 py-2 text-sm text-oc-text" type="time" value={shiftForm.startHour} onChange={(event) => setShiftForm({ ...shiftForm, startHour: event.target.value })} />
+            </label>
+            <label className="text-xs text-oc-muted">
+              End
+              <input className="mt-1 w-full rounded border border-oc-border bg-oc-bg px-3 py-2 text-sm text-oc-text" type="time" value={shiftForm.endHour} onChange={(event) => setShiftForm({ ...shiftForm, endHour: event.target.value })} />
+            </label>
+          </div>
+          <label className="text-xs text-oc-muted">
+            Timezone
+            <input className="mt-1 w-full rounded border border-oc-border bg-oc-bg px-3 py-2 text-sm text-oc-text" value={shiftForm.timezone} onChange={(event) => setShiftForm({ ...shiftForm, timezone: event.target.value })} />
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => (
+              <button
+                type="button"
+                key={day}
+                onClick={() => toggleDay(day)}
+                className={`rounded border px-3 py-1.5 text-xs ${shiftForm.days.includes(day) ? "border-oc-blue bg-oc-blue/12 text-oc-blue" : "border-oc-border bg-oc-bg text-oc-muted"}`}
+              >
+                {day}
+              </button>
+            ))}
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <Toggle checked={shiftForm.quietHoursEnabled} onCheckedChange={(quietHoursEnabled) => setShiftForm({ ...shiftForm, quietHoursEnabled })} label="Quiet hours" />
+            <Toggle checked={shiftForm.autoShutdownPrompt} onCheckedChange={(autoShutdownPrompt) => setShiftForm({ ...shiftForm, autoShutdownPrompt })} label="Shutdown prompts" />
+          </div>
+          <div>
+            <Button type="submit"><Save size={14} /> Save Shift</Button>
+          </div>
+        </form>
       </Card>
 
       <Card>
