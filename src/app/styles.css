@@ -1,0 +1,119 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --oc-bg: 7 10 14;
+  --oc-surface: 12 17 23;
+  --oc-elevated: 17 24 32;
+  --oc-border: 34 45 58;
+  --oc-text: 244 247 250;
+  --oc-muted: 139 153 168;
+  --oc-blue: 62 147 255;
+  --oc-cyan: 29 202 211;
+  --oc-success: 34 197 94;
+  --oc-warning: 245 158 11;
+  --oc-critical: 239 68 68;
+}
+
+.light {
+  color-scheme: light;
+  --oc-bg: 246 248 251;
+  --oc-surface: 255 255 255;
+  --oc-elevated: 240 244 249;
+  --oc-border: 207 216 226;
+  --oc-text: 16 24 35;
+  --oc-muted: 91 103 118;
+  --oc-blue: 15 116 220;
+  --oc-cyan: 8 145 178;
+  --oc-success: 22 163 74;
+  --oc-warning: 217 119 6;
+  --oc-critical: 220 38 38;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  background: rgb(var(--oc-bg));
+  color: rgb(var(--oc-text));
+  font-family: Inter, Geist, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid rgb(var(--oc-blue));
+  outline-offset: 2px;
+}
+
+.app-shell {
+  display: grid;
+  height: 100vh;
+  grid-template-rows: 52px 1fr minmax(148px, 22vh);
+  background: linear-gradient(180deg, rgb(7 10 14), rgb(9 13 18));
+}
+
+.app-shell.sidepanel {
+  min-width: 360px;
+  grid-template-rows: 50px 1fr 172px;
+}
+
+.workspace {
+  display: grid;
+  min-height: 0;
+  grid-template-columns: 220px minmax(0, 1fr);
+  border-top: 1px solid rgb(var(--oc-border) / .86);
+}
+
+.sidepanel .workspace {
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+
+.main-scroll {
+  min-height: 0;
+  overflow: auto;
+  background:
+    linear-gradient(180deg, rgb(var(--oc-bg) / .72), rgb(var(--oc-bg))),
+    repeating-linear-gradient(0deg, transparent, transparent 35px, rgb(var(--oc-border) / .12) 36px);
+}
+
+.main-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+
+.main-scroll::-webkit-scrollbar-thumb {
+  border: 3px solid rgb(var(--oc-bg));
+  border-radius: 999px;
+  background: rgb(var(--oc-border));
+}
+
+.xterm {
+  padding: 6px 8px;
+}
+
+@media (max-width: 780px) {
+  .workspace,
+  .sidepanel .workspace {
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+}
