@@ -34,6 +34,7 @@ import { generateDailyPlan } from "../shared/services/planner";
 import { createLocalReport, exportTasks } from "../shared/services/reports";
 import { buildShutdownReport } from "../shared/services/localAi";
 import { downloadExport, hasRuntime, sendRuntimeMessage } from "../shared/chrome";
+import { restoreFromSyncBackupIfEmpty } from "../shared/storage/syncBackup";
 
 export type ViewKey = "overview" | "tasks" | "plan" | "focus" | "timeline" | "reports" | "insights" | "settings";
 
@@ -121,6 +122,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   load: async () => {
     set({ loading: true });
+    await restoreFromSyncBackupIfEmpty();
     await ensureDefaultShift();
     const [settings, hasKey, tasks, events, sessions, reminders, plans, reports, captures, shifts, stats] = await Promise.all([
       getAppSettings(),

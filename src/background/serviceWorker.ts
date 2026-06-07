@@ -15,9 +15,11 @@ import { executeParsedCommand } from "../shared/services/commandExecutor";
 import { parseCommandWithAI, summarizePageWithAI, summarizeTasksWithAI, transcribeAudio, generateAIReport } from "../shared/services/ai";
 import { parseCommand } from "../shared/services/commandParser";
 import { exportTasks, reportStats } from "../shared/services/reports";
+import { backupToSyncStorageQuietly, restoreFromSyncBackupIfEmpty } from "../shared/storage/syncBackup";
 
 const REMINDER_ALARM_PREFIX = "reminder:";
 const FOCUS_ALARM_PREFIX = "focus:";
+let storageReady: Promise<void> | undefined;
 
 function respond<T>(data: T): RuntimeResponse<T> {
   return { ok: true, data };
@@ -34,6 +36,20 @@ function base64ToArrayBuffer(value: string): ArrayBuffer {
     bytes[index] = binary.charCodeAt(index);
   }
   return bytes.buffer;
+}
+
+async function prepareStorage(): Promise<void> {
+  await initTrustedStorageAccess();
+  await restoreFromSyncBackupIfEmpty();
+  await ensureDefaultShift();
+}
+
+async function ensureStorageReady(): Promise<void> {
+  storageReady ??= prepareStorage().catch((error) => {
+    storageReady = undefined;
+    throw error;
+  });
+  await storageReady;
 }
 
 async function openSidePanel(tabId?: number, windowId?: number): Promise<{ mode: "sidePanel" | "tab"; message: string }> {
@@ -232,6 +248,7 @@ async function handleRuntimeMessage(raw: unknown, sender?: chrome.runtime.Messag
   const result = RuntimeMessageSchema.safeParse(raw);
   if (!result.success) return { ok: false, error: result.error.message };
   const message = result.data;
+  await ensureStorageReady();
 
   if (message.type === "OPEN_SIDE_PANEL") {
     return respond(await openSidePanel(message.tabId ?? sender?.tab?.id, message.windowId ?? sender?.tab?.windowId));
@@ -298,8 +315,7 @@ async function handleRuntimeMessage(raw: unknown, sender?: chrome.runtime.Messag
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  void initTrustedStorageAccess();
-  void ensureDefaultShift();
+  void ensureStorageReady().catch(() => undefined);
   void chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true });
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
@@ -311,8 +327,7 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  void initTrustedStorageAccess();
-  void ensureDefaultShift();
+  void ensureStorageReady().catch(() => undefined);
 });
 
 chrome.action.onClicked.addListener((tab) => {
@@ -320,16 +335,19 @@ chrome.action.onClicked.addListener((tab) => {
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  void handleCapture(
-    {
-      type: "CAPTURE_PAGE",
-      payload: {
-        selectedText: info.selectionText,
-        taskId: undefined
-      }
-    },
-    { tab }
-  ).catch(() => undefined);
+  void (async () => {
+    await ensureStorageReady();
+    await handleCapture(
+      {
+        type: "CAPTURE_PAGE",
+        payload: {
+          selectedText: info.selectionText,
+          taskId: undefined
+        }
+      },
+      { tab }
+    );
+  })().catch(() => undefined);
 });
 
 chrome.runtime.onMessage.addListener((raw, sender, sendResponse) => {
@@ -340,10 +358,12 @@ chrome.runtime.onMessage.addListener((raw, sender, sendResponse) => {
 chrome.alarms.onAlarm.addListener((alarm) => {
   void (async () => {
     if (alarm.name.startsWith(REMINDER_ALARM_PREFIX)) {
+      await ensureStorageReady();
       const id = alarm.name.slice(REMINDER_ALARM_PREFIX.length);
       const reminder = await db.reminders.get(id);
       if (!reminder) return;
       await db.reminders.put({ ...reminder, status: "fired" });
+      await backupToSyncStorageQuietly();
       await createNotification(`reminder:${id}`, {
         type: "basic",
         iconUrl: "icons/icon128.png",
@@ -354,6 +374,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     }
 
     if (alarm.name.startsWith(FOCUS_ALARM_PREFIX)) {
+      await ensureStorageReady();
       const id = alarm.name.slice(FOCUS_ALARM_PREFIX.length);
       const session = await completeFocusSession(id);
       await createNotification(`focus:${id}`, {
@@ -369,12 +390,14 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 chrome.notifications?.onButtonClicked.addListener((notificationId, buttonIndex) => {
   void (async () => {
+    await ensureStorageReady();
     if (notificationId.startsWith("reminder:") && buttonIndex === 1) {
       const id = notificationId.slice("reminder:".length);
       const reminder = await db.reminders.get(id);
       if (!reminder) return;
       const snoozedUntil = Date.now() + 10 * 60_000;
       await db.reminders.put({ ...reminder, status: "snoozed", snoozedUntil });
+      await backupToSyncStorageQuietly();
       await scheduleReminderAlarm(id, snoozedUntil);
       return;
     }

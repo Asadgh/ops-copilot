@@ -42,6 +42,7 @@ Default models:
 
 ## Notes
 
-- Data is stored locally in IndexedDB through Dexie.
+- Active data is stored locally in IndexedDB through Dexie.
+- Tasks and recent operational data are also backed up to `chrome.storage.sync` and restored automatically when the local database is empty after reinstall. Restore depends on the same Chrome profile, sync storage availability, and a stable extension ID. OpenAI API keys are not included in this backup.
 - Reminders and focus completions use `chrome.alarms` so they survive MV3 service worker sleep.
 - CSV, Excel, Markdown, and TXT exports are implemented. PDF remains future scope per the spec.

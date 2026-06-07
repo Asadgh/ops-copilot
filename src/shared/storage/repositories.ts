@@ -15,6 +15,7 @@ import type {
   TaskStatus
 } from "../types";
 import { db } from "./db";
+import { backupToSyncStorageQuietly } from "./syncBackup";
 
 export function buildTask(input: Partial<Task> & { task?: string }): Task {
   const now = Date.now();
@@ -75,6 +76,7 @@ export async function addActivity(event: Omit<ActivityEvent, "id" | "timestamp">
       await db.tasks.put(updated);
     }
   }
+  await backupToSyncStorageQuietly();
   return activity;
 }
 
@@ -245,6 +247,8 @@ export async function updateReminder(id: string, patch: Partial<Reminder>): Prom
       taskId: reminder.taskId,
       source: "ui"
     });
+  } else {
+    await backupToSyncStorageQuietly();
   }
   return reminder;
 }

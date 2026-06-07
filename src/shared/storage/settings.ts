@@ -1,6 +1,7 @@
 import { APP_SETTINGS_ID, DEFAULT_SETTINGS, DEFAULT_SHIFT, OPENAI_API_KEY_STORAGE_KEY } from "../constants";
 import type { AppSettings, LauncherSettings, Shift } from "../types";
 import { db } from "./db";
+import { backupToSyncStorageQuietly } from "./syncBackup";
 
 function mergeSettings(settings?: Partial<AppSettings>): AppSettings {
   return {
@@ -33,6 +34,7 @@ export async function updateAppSettings(patch: Partial<AppSettings>): Promise<Ap
     }
   });
   await db.settings.put(next);
+  await backupToSyncStorageQuietly();
   return next;
 }
 

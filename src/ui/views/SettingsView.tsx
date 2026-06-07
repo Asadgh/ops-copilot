@@ -1,5 +1,5 @@
 import * as Switch from "@radix-ui/react-switch";
-import { KeyRound, Save, Trash2 } from "lucide-react";
+import { DatabaseBackup, KeyRound, Save, Trash2 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useAppStore } from "../../app/store";
 import { DEFAULT_SHIFT } from "../../shared/constants";
@@ -180,6 +180,21 @@ export function SettingsView() {
             <Button type="submit"><Save size={14} /> Save Shift</Button>
           </div>
         </form>
+      </Card>
+
+      <Card>
+        <SectionTitle
+          title="Data Persistence"
+          subtitle="Tasks and recent operational data are backed up with Chrome Sync and restored on a fresh install."
+          action={
+            <span className="inline-flex items-center gap-1 rounded-full border border-oc-success/45 bg-oc-success/10 px-2.5 py-1 text-[11px] font-semibold text-oc-success">
+              <DatabaseBackup size={12} /> Auto backup
+            </span>
+          }
+        />
+        <p className="text-xs leading-5 text-oc-muted">
+          Restore works when Chrome Sync storage is available and the extension keeps the same ID. API keys stay local and are not included in the backup.
+        </p>
       </Card>
 
       <Card>
