@@ -209,7 +209,26 @@ export type ParsedCommand = {
 export type VoiceResult = {
   transcript: string;
   command: ParsedCommand;
-  execution: RuntimeResponse;
+  execution?: RuntimeResponse;
+};
+
+export type PageTaskSuggestion = {
+  task: string;
+  priority: Priority;
+  dueAt?: number;
+  tags: string[];
+  summary: string;
+  nextAction: string;
+  confidence: number;
+};
+
+export type TaskCleanupSuggestion = {
+  taskId: string;
+  task?: string;
+  notes?: string;
+  tags?: string[];
+  status?: TaskStatus;
+  reason: string;
 };
 
 export type ExportPayload = {
@@ -233,6 +252,9 @@ export type RuntimeMessage =
   | { type: "START_FOCUS"; payload: { taskId?: string; durationMinutes: number } }
   | { type: "SCHEDULE_REMINDER"; payload: { taskId?: string; title: string; dueAt: number } }
   | { type: "VOICE_TRANSCRIBE"; payload: { audioBase64: string; mimeType: string } }
+  | { type: "VOICE_PREVIEW_TRANSCRIBE"; payload: { audioBase64: string; mimeType: string } }
+  | { type: "AI_CLEANUP_TASKS"; payload: { tasks: Task[] } }
+  | { type: "AI_DAILY_BRIEFING"; payload: { tasks: Task[]; reminders: Reminder[]; shifts: Shift[] } }
   | { type: "AI_PARSE_COMMAND" | "AI_SUMMARIZE" | "AI_REPORT"; payload: unknown }
   | { type: "EXECUTE_COMMAND"; payload: { command: string; source?: "terminal" | "voice" | "launcher" | "ui" } }
   | { type: "EXPORT_REPORT"; payload: { format: ExportFormat; filters: ReportFilters } };
@@ -251,6 +273,9 @@ export const RuntimeMessageSchema: z.ZodType<RuntimeMessage> = z.discriminatedUn
   z.object({ type: z.literal("START_FOCUS"), payload: z.object({ taskId: z.string().optional(), durationMinutes: z.number().min(1) }) }),
   z.object({ type: z.literal("SCHEDULE_REMINDER"), payload: z.object({ taskId: z.string().optional(), title: z.string(), dueAt: z.number() }) }),
   z.object({ type: z.literal("VOICE_TRANSCRIBE"), payload: z.object({ audioBase64: z.string().min(1), mimeType: z.string() }) }),
+  z.object({ type: z.literal("VOICE_PREVIEW_TRANSCRIBE"), payload: z.object({ audioBase64: z.string().min(1), mimeType: z.string() }) }),
+  z.object({ type: z.literal("AI_CLEANUP_TASKS"), payload: z.object({ tasks: z.array(z.record(z.unknown())) }) }),
+  z.object({ type: z.literal("AI_DAILY_BRIEFING"), payload: z.object({ tasks: z.array(z.record(z.unknown())), reminders: z.array(z.record(z.unknown())), shifts: z.array(z.record(z.unknown())) }) }),
   z.object({ type: z.literal("AI_PARSE_COMMAND"), payload: z.unknown() }),
   z.object({ type: z.literal("AI_SUMMARIZE"), payload: z.unknown() }),
   z.object({ type: z.literal("AI_REPORT"), payload: z.unknown() }),

@@ -1,9 +1,11 @@
 import * as Switch from "@radix-ui/react-switch";
-import { DatabaseBackup, KeyRound, Save, Trash2 } from "lucide-react";
+import { DatabaseBackup, Download, KeyRound, RefreshCw, Save, Trash2, Upload } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useAppStore } from "../../app/store";
 import { DEFAULT_SHIFT } from "../../shared/constants";
 import type { AIMode, PlanMode, Shift, ThemeMode } from "../../shared/types";
+import { backupToSyncStorage, exportFullBackup, getBackupStatus, importFullBackup, restoreFromSyncBackup, type BackupStatus, type RestoreMode } from "../../shared/storage/syncBackup";
+import { downloadExport } from "../../shared/chrome";
 import { Button } from "../components/Button";
 import { Card, SectionTitle } from "../components/Card";
 
@@ -45,23 +47,41 @@ function Toggle({ checked, onCheckedChange, label }: { checked: boolean; onCheck
   );
 }
 
+function relativeTime(timestamp?: number): string {
+  if (!timestamp) return "Never";
+  const minutes = Math.max(0, Math.round((Date.now() - timestamp) / 60_000));
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
 export function SettingsView() {
   const settings = useAppStore((store) => store.settings);
   const hasApiKey = useAppStore((store) => store.hasApiKey);
   const saveSettings = useAppStore((store) => store.saveSettings);
   const saveApiKey = useAppStore((store) => store.saveApiKey);
   const clearApiKey = useAppStore((store) => store.clearApiKey);
+  const load = useAppStore((store) => store.load);
   const shifts = useAppStore((store) => store.shifts);
   const saveShift = useAppStore((store) => store.saveShift);
   const [apiKey, setApiKey] = useState("");
   const [keyStatus, setKeyStatus] = useState<"idle" | "saving" | "saved" | "cleared" | "error">("idle");
   const [keyMessage, setKeyMessage] = useState("");
   const [shiftForm, setShiftForm] = useState<Shift>(shifts[0] ?? DEFAULT_SHIFT);
+  const [backupStatus, setBackupStatus] = useState<BackupStatus | undefined>();
+  const [backupMessage, setBackupMessage] = useState("");
+  const [importMode, setImportMode] = useState<RestoreMode>("merge");
   const timezones = useMemo(() => timezoneOptions(shiftForm.timezone), [shiftForm.timezone]);
 
   useEffect(() => {
     setShiftForm(shifts[0] ?? DEFAULT_SHIFT);
   }, [shifts]);
+
+  useEffect(() => {
+    void refreshBackupStatus();
+  }, []);
 
   if (!settings) return null;
 
@@ -100,6 +120,39 @@ export function SettingsView() {
   async function submitShift(event: FormEvent) {
     event.preventDefault();
     await saveShift(shiftForm);
+  }
+
+  async function refreshBackupStatus() {
+    setBackupStatus(await getBackupStatus());
+  }
+
+  async function handleManualBackup() {
+    const backup = await exportFullBackup();
+    downloadExport(backup.filename, "application/json", backup.json, "text");
+    setBackupMessage(`Exported full backup with ${backup.counts.tasks} tasks.`);
+  }
+
+  async function handleSyncNow() {
+    const manifest = await backupToSyncStorage();
+    await refreshBackupStatus();
+    setBackupMessage(manifest ? `Chrome Sync backup updated with ${manifest.counts.tasks} tasks.` : "No task data to sync yet.");
+  }
+
+  async function handleImportFile(file?: File | null) {
+    if (!file) return;
+    if (importMode === "replace" && !window.confirm("Replace local Ops Copilot data with this backup?")) return;
+    const result = await importFullBackup(await file.text(), importMode);
+    setBackupMessage(result.restored ? `Imported backup with ${result.counts?.tasks ?? 0} tasks.` : result.reason ?? "Could not import backup.");
+    await load();
+    await refreshBackupStatus();
+  }
+
+  async function handleSyncRestore(mode: RestoreMode) {
+    if (mode === "replace" && !window.confirm("Replace local Ops Copilot data with the Chrome Sync backup?")) return;
+    const result = await restoreFromSyncBackup(mode);
+    setBackupMessage(result.restored ? `${mode === "replace" ? "Restored" : "Merged"} Chrome Sync backup with ${result.counts?.tasks ?? 0} tasks.` : result.reason ?? "Could not restore sync backup.");
+    await load();
+    await refreshBackupStatus();
   }
 
   function toggleDay(day: string) {
@@ -185,16 +238,43 @@ export function SettingsView() {
       <Card>
         <SectionTitle
           title="Data Persistence"
-          subtitle="Tasks and recent operational data are backed up with Chrome Sync and restored on a fresh install."
+          subtitle="Chrome Sync keeps a compact backup; manual export keeps a full user-controlled backup."
           action={
             <span className="inline-flex items-center gap-1 rounded-full border border-oc-success/45 bg-oc-success/10 px-2.5 py-1 text-[11px] font-semibold text-oc-success">
               <DatabaseBackup size={12} /> Auto backup
             </span>
           }
         />
-        <p className="text-xs leading-5 text-oc-muted">
-          Restore works when Chrome Sync storage is available and the extension keeps the same ID. API keys stay local and are not included in the backup.
-        </p>
+        <div className="grid gap-3 text-xs text-oc-muted">
+          <div className="grid gap-2 rounded-lg border border-oc-border/58 bg-oc-bg/45 p-3 md:grid-cols-3">
+            <p><span className="font-semibold text-oc-text">Sync:</span> {backupStatus?.syncAvailable ? "Available" : "Unavailable"}</p>
+            <p><span className="font-semibold text-oc-text">Last backed up:</span> {relativeTime(backupStatus?.manifest?.updatedAt)}</p>
+            <p><span className="font-semibold text-oc-text">Local records:</span> {backupStatus?.localRecords ?? 0}</p>
+          </div>
+          {backupStatus?.warning ? <p className="rounded-lg border border-oc-warning/35 bg-oc-warning/10 px-3 py-2 text-oc-warning">{backupStatus.warning}</p> : null}
+          {backupStatus?.hasConflict ? (
+            <div className="rounded-lg border border-oc-blue/35 bg-oc-blue/10 p-3 text-oc-blue">
+              <p className="font-semibold">Local data and a Chrome Sync backup both exist.</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button size="sm" type="button" onClick={() => handleSyncRestore("merge")}>Merge Sync Backup</Button>
+                <Button size="sm" type="button" variant="danger" onClick={() => handleSyncRestore("replace")}>Replace Local</Button>
+              </div>
+            </div>
+          ) : null}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" onClick={handleManualBackup}><Download size={14} /> Export Full Backup</Button>
+            <Button type="button" variant="secondary" onClick={handleSyncNow}><RefreshCw size={14} /> Sync Now</Button>
+            <label className="oc-select inline-flex h-9 cursor-pointer items-center gap-2 px-3 text-sm text-oc-text">
+              <Upload size={14} /> Import Backup
+              <input className="hidden" type="file" accept="application/json,.json" onChange={(event) => void handleImportFile(event.target.files?.[0])} />
+            </label>
+            <select className="oc-select h-9 px-3 text-sm text-oc-text" value={importMode} onChange={(event) => setImportMode(event.target.value as RestoreMode)}>
+              <option value="merge">Merge import</option>
+              <option value="replace">Replace local data</option>
+            </select>
+          </div>
+          <p aria-live="polite">{backupMessage || "API keys stay local and are not included in any backup."}</p>
+        </div>
       </Card>
 
       <Card>

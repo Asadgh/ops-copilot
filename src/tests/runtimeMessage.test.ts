@@ -9,7 +9,13 @@ describe("runtime message validation", () => {
 
   it("accepts serialized voice transcription payloads", () => {
     expect(RuntimeMessageSchema.safeParse({ type: "VOICE_TRANSCRIBE", payload: { audioBase64: "AAAA", mimeType: "audio/webm" } }).success).toBe(true);
+    expect(RuntimeMessageSchema.safeParse({ type: "VOICE_PREVIEW_TRANSCRIBE", payload: { audioBase64: "AAAA", mimeType: "audio/webm" } }).success).toBe(true);
     expect(RuntimeMessageSchema.safeParse({ type: "VOICE_TRANSCRIBE", payload: { audioBase64: "", mimeType: "audio/webm" } }).success).toBe(false);
+  });
+
+  it("accepts AI cleanup and briefing payloads", () => {
+    expect(RuntimeMessageSchema.safeParse({ type: "AI_CLEANUP_TASKS", payload: { tasks: [] } }).success).toBe(true);
+    expect(RuntimeMessageSchema.safeParse({ type: "AI_DAILY_BRIEFING", payload: { tasks: [], reminders: [], shifts: [] } }).success).toBe(true);
   });
 
   it("rejects invalid focus duration", () => {

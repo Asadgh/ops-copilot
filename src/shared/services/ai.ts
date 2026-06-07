@@ -1,7 +1,7 @@
-import type { ParsedCommand, ReportFilters, Task } from "../types";
+import type { PageTaskSuggestion, ParsedCommand, Reminder, ReportFilters, Shift, Task, TaskCleanupSuggestion } from "../types";
 import { getAppSettings, getOpenAIApiKey } from "../storage/settings";
 import { parseCommand } from "./commandParser";
-import { summarizeCaptureLocal, summarizeTasksLocal } from "./localAi";
+import { buildDailyBriefingLocal, cleanupTasksLocal, suggestPageTaskLocal, summarizeCaptureLocal, summarizeTasksLocal } from "./localAi";
 import { parseReminderDueAt } from "./commandParser";
 
 const commandActions: ParsedCommand["action"][] = [
@@ -64,6 +64,10 @@ function extractJsonObject(text: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function coercePriority(value: unknown): PageTaskSuggestion["priority"] {
+  return value === "critical" || value === "high" || value === "low" || value === "medium" ? value : "medium";
 }
 
 export async function parseCommandWithAI(command: string): Promise<ParsedCommand> {
@@ -132,6 +136,90 @@ export async function summarizePageWithAI(input: { title: string; url: string; s
         `Title: ${input.title}`,
         `URL: ${input.url}`,
         `Selected text: ${input.selectedText || "None"}`
+      ].join("\n")
+    );
+  } catch {
+    return fallback;
+  }
+}
+
+export async function suggestPageTaskWithAI(input: {
+  title: string;
+  url: string;
+  selectedText?: string;
+  description?: string;
+  headings?: string[];
+  excerpt?: string;
+}): Promise<PageTaskSuggestion> {
+  const fallback = suggestPageTaskLocal(input);
+  try {
+    const text = await callOpenAIText(
+      [
+        "Create an operational task suggestion from this browser page.",
+        "Return only JSON with task, priority, dueAt, tags, summary, nextAction, confidence.",
+        "priority must be one of low, medium, high, critical. dueAt must be a Unix timestamp in milliseconds or omitted.",
+        `Title: ${input.title}`,
+        `URL: ${input.url}`,
+        `Selected text: ${input.selectedText || "None"}`,
+        `Description: ${input.description || "None"}`,
+        `Headings: ${(input.headings ?? []).join(" | ") || "None"}`,
+        `Page excerpt: ${input.excerpt || "None"}`
+      ].join("\n")
+    );
+    const json = JSON.parse(extractJsonObject(text)) as Record<string, unknown>;
+    return {
+      task: typeof json.task === "string" && json.task.trim() ? json.task.trim().slice(0, 140) : fallback.task,
+      priority: coercePriority(json.priority),
+      dueAt: typeof json.dueAt === "number" ? json.dueAt : fallback.dueAt,
+      tags: Array.isArray(json.tags) ? json.tags.map(String).map((tag) => tag.trim()).filter(Boolean).slice(0, 8) : fallback.tags,
+      summary: typeof json.summary === "string" && json.summary.trim() ? json.summary.trim() : fallback.summary,
+      nextAction: typeof json.nextAction === "string" && json.nextAction.trim() ? json.nextAction.trim() : fallback.nextAction,
+      confidence: typeof json.confidence === "number" ? Math.min(Math.max(json.confidence, 0), 1) : 0.72
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+export async function cleanupTasksWithAI(tasks: Task[]): Promise<TaskCleanupSuggestion[]> {
+  const fallback = cleanupTasksLocal(tasks);
+  try {
+    const text = await callOpenAIText(
+      [
+        "Clean this task list for an operations workspace.",
+        "Return only JSON: {\"suggestions\":[{\"taskId\":\"...\",\"task\":\"clean title\",\"notes\":\"optional added context\",\"tags\":[\"...\"],\"status\":\"archived|pending|active|blocked|completed\",\"reason\":\"short reason\"}]}",
+        "Prefer small safe edits: remove filler, improve vague titles, tag related work, and archive obvious duplicates only.",
+        JSON.stringify(tasks.slice(0, 80))
+      ].join("\n")
+    );
+    const json = JSON.parse(extractJsonObject(text)) as { suggestions?: Array<Record<string, unknown>> };
+    const taskIds = new Set(tasks.map((task) => task.id));
+    return (json.suggestions ?? [])
+      .filter((item) => typeof item.taskId === "string" && taskIds.has(item.taskId))
+      .map((item): TaskCleanupSuggestion => ({
+        taskId: String(item.taskId),
+        task: typeof item.task === "string" ? item.task.trim().slice(0, 160) : undefined,
+        notes: typeof item.notes === "string" ? item.notes.trim().slice(0, 1000) : undefined,
+        tags: Array.isArray(item.tags) ? item.tags.map(String).map((tag) => tag.trim()).filter(Boolean).slice(0, 8) : undefined,
+        status: item.status === "archived" || item.status === "pending" || item.status === "active" || item.status === "blocked" || item.status === "completed" ? item.status : undefined,
+        reason: typeof item.reason === "string" ? item.reason.trim().slice(0, 180) : "AI cleanup suggestion"
+      }))
+      .slice(0, 32);
+  } catch {
+    return fallback;
+  }
+}
+
+export async function generateDailyBriefingWithAI(input: { tasks: Task[]; reminders: Reminder[]; shifts: Shift[] }): Promise<string> {
+  const fallback = buildDailyBriefingLocal(input);
+  try {
+    return await callOpenAIText(
+      [
+        "Generate a concise daily operations briefing.",
+        "Use 4-6 bullets. Prioritize current shift, critical/high tasks, blockers, due reminders, and what to do next.",
+        `Shifts: ${JSON.stringify(input.shifts.slice(0, 3))}`,
+        `Reminders: ${JSON.stringify(input.reminders.slice(0, 30))}`,
+        `Tasks: ${JSON.stringify(input.tasks.slice(0, 80))}`
       ].join("\n")
     );
   } catch {

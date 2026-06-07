@@ -10,6 +10,7 @@ import {
   LoaderCircle,
   Monitor,
   Moon,
+  Command,
   PanelRightOpen,
   Search,
   Settings,
@@ -17,7 +18,7 @@ import {
   TimerReset
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useAppStore, type ViewKey } from "../app/store";
 import { DEFAULT_SHIFT } from "../shared/constants";
 import type { ThemeMode } from "../shared/types";
@@ -26,6 +27,7 @@ import { isWithinShift } from "../shared/utils/date";
 import { VoiceButton } from "./components/VoiceButton";
 import { Button } from "./components/Button";
 import { NotificationCenterDialog } from "./components/NotificationCenterDialog";
+import { CommandPalette } from "./components/CommandPalette";
 import { OverviewView } from "./views/OverviewView";
 import { cn } from "./utils";
 
@@ -108,10 +110,17 @@ export function App({ mode }: { mode: "sidepanel" | "dashboard" }) {
   const setActiveView = useAppStore((store) => store.setActiveView);
   const settings = useAppStore((store) => store.settings);
   const saveSettings = useAppStore((store) => store.saveSettings);
+  const searchQuery = useAppStore((store) => store.searchQuery);
+  const setSearchQuery = useAppStore((store) => store.setSearchQuery);
   const stats = useAppStore((store) => store.stats);
+  const tasks = useAppStore((store) => store.tasks);
+  const captures = useAppStore((store) => store.captures);
+  const reports = useAppStore((store) => store.reports);
+  const events = useAppStore((store) => store.events);
   const reminders = useAppStore((store) => store.reminders);
   const shifts = useAppStore((store) => store.shifts);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [commandOpen, setCommandOpen] = useState(false);
   const [pageTaskStatus, setPageTaskStatus] = useState<PageTaskStatus | null>(null);
   const [creatingPageTask, setCreatingPageTask] = useState(false);
   const activeReminderCount = reminders.filter((reminder) => reminder.status !== "dismissed").length;
@@ -124,6 +133,30 @@ export function App({ mode }: { mode: "sidepanel" | "dashboard" }) {
     setMode(mode);
     void load();
   }, [load, mode, setMode]);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setCommandOpen(true);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  const searchResults = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return [];
+    return [
+      ...tasks.map((task) => ({ id: task.id, view: "tasks" as ViewKey, title: task.task, detail: [task.status, task.priority, task.blockers, task.notes, task.tags?.join(" ")].filter(Boolean).join(" ") })),
+      ...captures.map((capture) => ({ id: capture.id, view: "timeline" as ViewKey, title: capture.title, detail: [capture.url, capture.summary, capture.selectedText].filter(Boolean).join(" ") })),
+      ...reports.map((report) => ({ id: report.id, view: "reports" as ViewKey, title: report.title, detail: report.content })),
+      ...events.map((event) => ({ id: event.id, view: "timeline" as ViewKey, title: event.title, detail: event.details ?? "" }))
+    ]
+      .filter((item) => `${item.title} ${item.detail}`.toLowerCase().includes(query))
+      .slice(0, 8);
+  }, [captures, events, reports, searchQuery, tasks]);
 
   async function createTaskFromCurrentPage() {
     setCreatingPageTask(true);
@@ -152,16 +185,39 @@ export function App({ mode }: { mode: "sidepanel" | "dashboard" }) {
             </div>
           ) : null}
         </div>
-        <label className="ml-auto hidden h-9 min-w-0 max-w-xl flex-1 items-center gap-2 rounded-lg border border-oc-border/70 bg-oc-surface/78 px-3 text-xs text-oc-muted shadow-sm md:flex">
-          <Search size={14} />
-          <input className="min-w-0 flex-1 bg-transparent text-oc-text outline-none placeholder:text-oc-muted/70" placeholder="Search operational memory" />
-        </label>
+        <div className="relative ml-auto hidden min-w-0 max-w-xl flex-1 md:block">
+          <label className="flex h-9 items-center gap-2 rounded-lg border border-oc-border/70 bg-oc-surface/78 px-3 text-xs text-oc-muted shadow-sm">
+            <Search size={14} />
+            <input className="min-w-0 flex-1 bg-transparent text-oc-text outline-none placeholder:text-oc-muted/70" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search operational memory" />
+            <span className="rounded border border-oc-border/70 px-1.5 py-0.5 text-[10px] text-oc-muted">Ctrl K</span>
+          </label>
+          {searchResults.length ? (
+            <div className="absolute left-0 right-0 top-11 z-50 overflow-hidden rounded-lg border border-oc-border/70 bg-oc-surface shadow-xl shadow-black/20">
+              {searchResults.map((item) => (
+                <button
+                  key={`${item.view}-${item.id}`}
+                  className="block w-full px-3 py-2 text-left text-xs hover:bg-oc-elevated/70"
+                  onClick={() => {
+                    setActiveView(item.view);
+                    setSearchQuery("");
+                  }}
+                >
+                  <span className="block font-semibold text-oc-text">{item.title}</span>
+                  <span className="block truncate text-oc-muted">{item.detail || item.view}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
         <div className="flex items-center gap-2">
           <span className="oc-pill hidden lg:inline-flex" title={liveShift ? "Live shift" : "Off shift"}>
             <span className={cn("size-1.5 rounded-full", liveShift ? "bg-oc-success" : "bg-oc-muted")} /> {shift.startHour}-{shift.endHour}
           </span>
           <span className="oc-pill hidden lg:inline-flex">{stats.active} active</span>
           <span className="oc-pill font-semibold text-oc-cyan">{settings?.aiMode.toUpperCase() ?? "AI"}</span>
+          <Button size="icon" variant="ghost" title="Command palette" aria-label="Command palette" onClick={() => setCommandOpen(true)}>
+            <Command size={16} />
+          </Button>
           {mode === "sidepanel" ? (
             <Button
               size="icon"
@@ -253,6 +309,7 @@ export function App({ mode }: { mode: "sidepanel" | "dashboard" }) {
         </a>
       ) : null}
       <NotificationCenterDialog open={notificationsOpen} onOpenChange={setNotificationsOpen} />
+      <CommandPalette open={commandOpen} onOpenChange={setCommandOpen} />
     </div>
   );
 }

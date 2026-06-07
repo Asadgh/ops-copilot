@@ -114,6 +114,37 @@ export async function updateTask(id: string, patch: Partial<Task>, source: Activ
   return task;
 }
 
+export async function deleteTask(id: string, source: ActivityEvent["source"] = "ui"): Promise<Task> {
+  const existing = await db.tasks.get(id);
+  if (!existing) throw new Error(`Task not found: ${id}`);
+  await db.tasks.delete(id);
+  await addActivity({
+    type: "task.updated",
+    title: `Deleted task: ${existing.task}`,
+    taskId: id,
+    source
+  });
+  return existing;
+}
+
+export async function restoreTask(task: Task, source: ActivityEvent["source"] = "ui"): Promise<Task> {
+  const restored: Task = {
+    ...task,
+    metadata: {
+      ...task.metadata,
+      updatedAt: Date.now()
+    }
+  };
+  await db.tasks.put(restored);
+  await addActivity({
+    type: "task.updated",
+    title: `Restored task: ${restored.task}`,
+    taskId: restored.id,
+    source
+  });
+  return restored;
+}
+
 export async function listTasks(filters: ReportFilters = {}): Promise<Task[]> {
   const tasks = await db.tasks.orderBy("timeline").reverse().toArray();
   return tasks.filter((task) => {

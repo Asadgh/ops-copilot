@@ -9,10 +9,11 @@ const CHUNK_KEY_PREFIX = `${BACKUP_PREFIX}.chunk.`;
 const CHUNK_BYTES = 6500;
 const MAX_BACKUP_BYTES = 92_000;
 
-type BackupPayload = {
+export type BackupPayload = {
   version: typeof BACKUP_VERSION;
   updatedAt: number;
   truncated: boolean;
+  source: "sync" | "manual";
   settings?: AppSettings;
   tasks: Task[];
   activityEvents: ActivityEvent[];
@@ -24,7 +25,7 @@ type BackupPayload = {
   reports: Report[];
 };
 
-type BackupManifest = {
+export type BackupManifest = {
   version: typeof BACKUP_VERSION;
   updatedAt: number;
   chunks: number;
@@ -45,6 +46,18 @@ type BackupLimits = {
 };
 
 type BackupSource = Omit<BackupPayload, "version" | "updatedAt" | "truncated">;
+
+export type BackupStatus = {
+  syncAvailable: boolean;
+  manifest?: BackupManifest;
+  localRecords: number;
+  hasSyncBackup: boolean;
+  hasLocalData: boolean;
+  hasConflict: boolean;
+  warning?: string;
+};
+
+export type RestoreMode = "merge" | "replace";
 
 const backupTiers: BackupLimits[] = [
   { activityLimit: 200, focusLimit: 160, planLimit: 40, captureLimit: 120, reportLimit: 24, reportContentLimit: 2400 },
@@ -82,6 +95,7 @@ function preparePayload(source: BackupSource, limits: BackupLimits, truncated: b
     version: BACKUP_VERSION,
     updatedAt: Date.now(),
     truncated,
+    source: "sync",
     settings: source.settings,
     tasks,
     activityEvents: newestFirst(source.activityEvents, (event) => event.timestamp).slice(0, limits.activityLimit),
@@ -156,6 +170,7 @@ async function loadSource(): Promise<BackupSource> {
   ]);
 
   return {
+    source: "manual",
     settings,
     tasks,
     activityEvents,
@@ -265,6 +280,123 @@ async function localRecordCount(): Promise<number> {
   return counts.reduce((sum, count) => sum + count, 0);
 }
 
+function allTables() {
+  return [db.settings, db.tasks, db.activityEvents, db.focusSessions, db.shifts, db.dailyPlans, db.reminders, db.captures, db.reports] as const;
+}
+
+async function writeBackupPayload(backup: BackupPayload, mode: RestoreMode): Promise<void> {
+  await db.transaction("rw", allTables(), async () => {
+    if (mode === "replace") {
+      await Promise.all(allTables().map((table) => table.clear()));
+    }
+    if (backup.settings) await db.settings.put(backup.settings);
+    if (backup.tasks.length) await db.tasks.bulkPut(backup.tasks);
+    if (backup.activityEvents.length) await db.activityEvents.bulkPut(backup.activityEvents);
+    if (backup.focusSessions.length) await db.focusSessions.bulkPut(backup.focusSessions);
+    if (backup.shifts.length) await db.shifts.bulkPut(backup.shifts);
+    if (backup.dailyPlans.length) await db.dailyPlans.bulkPut(backup.dailyPlans);
+    if (backup.reminders.length) await db.reminders.bulkPut(backup.reminders);
+    if (backup.captures.length) await db.captures.bulkPut(backup.captures);
+    if (backup.reports.length) await db.reports.bulkPut(backup.reports);
+  });
+}
+
+function backupCounts(backup: BackupPayload): BackupManifest["counts"] {
+  return {
+    tasks: backup.tasks.length,
+    activityEvents: backup.activityEvents.length,
+    focusSessions: backup.focusSessions.length,
+    shifts: backup.shifts.length,
+    dailyPlans: backup.dailyPlans.length,
+    reminders: backup.reminders.length,
+    captures: backup.captures.length,
+    reports: backup.reports.length
+  };
+}
+
+export async function getBackupStatus(): Promise<BackupStatus> {
+  const localRecords = await localRecordCount();
+  if (!hasSyncStorage()) {
+    return {
+      syncAvailable: false,
+      localRecords,
+      hasSyncBackup: false,
+      hasLocalData: localRecords > 0,
+      hasConflict: false,
+      warning: "Chrome Sync storage is not available in this context."
+    };
+  }
+
+  try {
+    const result = await chrome.storage.sync.get(MANIFEST_KEY);
+    const manifest = result[MANIFEST_KEY] as BackupManifest | undefined;
+    const hasSyncBackup = Boolean(manifest?.chunks);
+    return {
+      syncAvailable: true,
+      manifest,
+      localRecords,
+      hasSyncBackup,
+      hasLocalData: localRecords > 0,
+      hasConflict: localRecords > 0 && hasSyncBackup,
+      warning: manifest?.truncated
+        ? "Chrome Sync backup was trimmed to fit storage limits. Use manual export for a full backup."
+        : manifest && manifest.bytes > MAX_BACKUP_BYTES * 0.85
+          ? "Chrome Sync backup is close to storage limits. Manual export is recommended."
+          : undefined
+    };
+  } catch (error) {
+    return {
+      syncAvailable: false,
+      localRecords,
+      hasSyncBackup: false,
+      hasLocalData: localRecords > 0,
+      hasConflict: false,
+      warning: error instanceof Error ? error.message : "Could not read Chrome Sync backup status."
+    };
+  }
+}
+
+export async function exportFullBackup(): Promise<{ filename: string; json: string; counts: BackupManifest["counts"] }> {
+  const source = await loadSource();
+  const payload: BackupPayload = {
+    version: BACKUP_VERSION,
+    updatedAt: Date.now(),
+    truncated: false,
+    ...source
+  };
+  return {
+    filename: `ops-copilot-backup-${new Date(payload.updatedAt).toISOString().slice(0, 10)}.json`,
+    json: JSON.stringify(payload, null, 2),
+    counts: backupCounts(payload)
+  };
+}
+
+export async function importFullBackup(json: string, mode: RestoreMode = "merge"): Promise<{ restored: boolean; counts?: BackupManifest["counts"]; reason?: string }> {
+  try {
+    const backup = JSON.parse(json) as BackupPayload;
+    if (backup.version !== BACKUP_VERSION || !Array.isArray(backup.tasks)) {
+      return { restored: false, reason: "Unsupported backup file." };
+    }
+    await writeBackupPayload(backup, mode);
+    await backupToSyncStorageQuietly();
+    return { restored: true, counts: backupCounts(backup) };
+  } catch (error) {
+    return { restored: false, reason: error instanceof Error ? error.message : "Could not import backup." };
+  }
+}
+
+export async function restoreFromSyncBackup(mode: RestoreMode = "merge"): Promise<{ restored: boolean; reason?: string; counts?: BackupManifest["counts"] }> {
+  try {
+    const backup = await readBackup();
+    if (!backup) return { restored: false, reason: "backup-missing" };
+    await writeBackupPayload(backup, mode);
+    await backupToSyncStorageQuietly();
+    return { restored: true, counts: backupCounts(backup) };
+  } catch {
+    return { restored: false, reason: "restore-failed" };
+  }
+}
+
 export async function restoreFromSyncBackupIfEmpty(): Promise<{ restored: boolean; reason?: string; counts?: BackupManifest["counts"] }> {
   try {
     if (!hasSyncStorage()) return { restored: false, reason: "sync-storage-unavailable" };
@@ -273,30 +405,11 @@ export async function restoreFromSyncBackupIfEmpty(): Promise<{ restored: boolea
     const backup = await readBackup();
     if (!backup) return { restored: false, reason: "backup-missing" };
 
-    await db.transaction("rw", [db.settings, db.tasks, db.activityEvents, db.focusSessions, db.shifts, db.dailyPlans, db.reminders, db.captures, db.reports], async () => {
-      if (backup.settings) await db.settings.put(backup.settings);
-      if (backup.tasks.length) await db.tasks.bulkPut(backup.tasks);
-      if (backup.activityEvents.length) await db.activityEvents.bulkPut(backup.activityEvents);
-      if (backup.focusSessions.length) await db.focusSessions.bulkPut(backup.focusSessions);
-      if (backup.shifts.length) await db.shifts.bulkPut(backup.shifts);
-      if (backup.dailyPlans.length) await db.dailyPlans.bulkPut(backup.dailyPlans);
-      if (backup.reminders.length) await db.reminders.bulkPut(backup.reminders);
-      if (backup.captures.length) await db.captures.bulkPut(backup.captures);
-      if (backup.reports.length) await db.reports.bulkPut(backup.reports);
-    });
+    await writeBackupPayload(backup, "merge");
 
     return {
       restored: true,
-      counts: {
-        tasks: backup.tasks.length,
-        activityEvents: backup.activityEvents.length,
-        focusSessions: backup.focusSessions.length,
-        shifts: backup.shifts.length,
-        dailyPlans: backup.dailyPlans.length,
-        reminders: backup.reminders.length,
-        captures: backup.captures.length,
-        reports: backup.reports.length
-      }
+      counts: backupCounts(backup)
     };
   } catch {
     return { restored: false, reason: "restore-failed" };

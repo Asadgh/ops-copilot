@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { APP_SETTINGS_ID, DEFAULT_SETTINGS } from "../shared/constants";
 import { buildTask } from "../shared/storage/repositories";
-import { backupToSyncStorage, restoreFromSyncBackupIfEmpty } from "../shared/storage/syncBackup";
+import { backupToSyncStorage, exportFullBackup, importFullBackup, restoreFromSyncBackupIfEmpty } from "../shared/storage/syncBackup";
 import { db } from "../shared/storage/db";
 
 type SyncStore = Record<string, unknown>;
@@ -77,5 +77,19 @@ describe("sync backup persistence", () => {
     expect(result.restored).toBe(false);
     expect(await db.tasks.get("task-remote")).toBeUndefined();
     expect((await db.tasks.get("task-local"))?.task).toBe("Local task");
+  });
+
+  it("exports and imports a full manual backup", async () => {
+    stubChromeSync();
+    await db.tasks.put(buildTask({ id: "task-exported", task: "Exported backup task" }));
+    const backup = await exportFullBackup();
+
+    await resetDb();
+    await db.tasks.put(buildTask({ id: "task-stale", task: "Stale local task" }));
+    const result = await importFullBackup(backup.json, "replace");
+
+    expect(result.restored).toBe(true);
+    expect(await db.tasks.get("task-stale")).toBeUndefined();
+    expect((await db.tasks.get("task-exported"))?.task).toBe("Exported backup task");
   });
 });

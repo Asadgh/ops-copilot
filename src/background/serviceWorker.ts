@@ -12,7 +12,15 @@ import {
   startFocusSession
 } from "../shared/storage/repositories";
 import { executeParsedCommand } from "../shared/services/commandExecutor";
-import { parseCommandWithAI, summarizePageWithAI, summarizeTasksWithAI, transcribeAudio, generateAIReport } from "../shared/services/ai";
+import {
+  cleanupTasksWithAI,
+  generateAIReport,
+  generateDailyBriefingWithAI,
+  parseCommandWithAI,
+  suggestPageTaskWithAI,
+  summarizeTasksWithAI,
+  transcribeAudio
+} from "../shared/services/ai";
 import { parseCommand } from "../shared/services/commandParser";
 import { exportTasks, reportStats } from "../shared/services/reports";
 import { backupToSyncStorageQuietly, restoreFromSyncBackupIfEmpty } from "../shared/storage/syncBackup";
@@ -190,24 +198,33 @@ async function handleCapture(message: Extract<RuntimeMessage, { type: "CAPTURE_P
   const url = page.url || "";
   const selectedText = page.selectedText;
   const summaryInput = pageContextForSummary(page);
-  const summary = await summarizePageWithAI({ title, url, selectedText: summaryInput || selectedText });
+  const suggestion = await suggestPageTaskWithAI({
+    title,
+    url,
+    selectedText: summaryInput || selectedText,
+    description: page.description,
+    headings: page.headings,
+    excerpt: page.excerpt
+  });
+  const summary = suggestion.summary;
   let taskId = message.payload?.taskId;
   let task: Awaited<ReturnType<typeof createTask>> | undefined;
   if (!taskId) {
-    const seedTitle = compactText(selectedText?.split(/[.!?]/)[0], 90);
     task = await createTask(
       {
-        task: seedTitle ? `Follow up: ${seedTitle}` : `Review: ${title}`,
-        priority: "medium",
+        task: suggestion.task,
+        priority: suggestion.priority,
+        dueAt: suggestion.dueAt,
         location: title,
         notes: [
           summary,
+          suggestion.nextAction ? `Next action: ${suggestion.nextAction}` : "",
           page.description ? `Description: ${page.description}` : "",
           page.headings.length ? `Page sections: ${page.headings.join(" | ")}` : "",
           page.excerpt ? `Excerpt: ${page.excerpt.slice(0, 1200)}` : ""
         ].filter(Boolean).join("\n\n"),
-        tags: ["page", "capture"],
-        metadata: { createdAt: Date.now(), updatedAt: Date.now(), sourceUrl: url, sourceTitle: title, pageSummary: summary }
+        tags: Array.from(new Set(["page", "capture", ...suggestion.tags])),
+        metadata: { createdAt: Date.now(), updatedAt: Date.now(), sourceUrl: url, sourceTitle: title, pageSummary: summary, aiSummary: suggestion.nextAction, aiTags: suggestion.tags }
       },
       "browser"
     );
@@ -283,6 +300,12 @@ async function handleRuntimeMessage(raw: unknown, sender?: chrome.runtime.Messag
     return respond(voiceResult);
   }
 
+  if (message.type === "VOICE_PREVIEW_TRANSCRIBE") {
+    const transcript = await transcribeAudio(base64ToArrayBuffer(message.payload.audioBase64), message.payload.mimeType);
+    const command = await parseCommandWithAI(transcript);
+    return respond({ transcript, command } satisfies VoiceResult);
+  }
+
   if (message.type === "AI_PARSE_COMMAND") {
     const command = String((message.payload as { command?: string })?.command ?? "");
     return respond(await parseCommandWithAI(command));
@@ -295,6 +318,16 @@ async function handleRuntimeMessage(raw: unknown, sender?: chrome.runtime.Messag
 
   if (message.type === "AI_REPORT") {
     return respond({ report: await handleAiReport(message.payload) });
+  }
+
+  if (message.type === "AI_CLEANUP_TASKS") {
+    const suggestions = await cleanupTasksWithAI(message.payload.tasks);
+    return respond({ suggestions });
+  }
+
+  if (message.type === "AI_DAILY_BRIEFING") {
+    const briefing = await generateDailyBriefingWithAI(message.payload);
+    return respond({ briefing });
   }
 
   if (message.type === "EXECUTE_COMMAND") {
@@ -369,7 +402,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
         iconUrl: "icons/icon128.png",
         title: reminder.title,
         message: "Reminder due",
-        buttons: [{ title: "Resume" }, { title: "Snooze" }]
+        buttons: reminder.taskId ? [{ title: "Start Focus" }, { title: "Snooze" }] : [{ title: "Open Ops Copilot" }, { title: "Snooze" }]
       });
     }
 
@@ -399,6 +432,15 @@ chrome.notifications?.onButtonClicked.addListener((notificationId, buttonIndex) 
       await db.reminders.put({ ...reminder, status: "snoozed", snoozedUntil });
       await backupToSyncStorageQuietly();
       await scheduleReminderAlarm(id, snoozedUntil);
+      return;
+    }
+    if (notificationId.startsWith("reminder:") && buttonIndex === 0) {
+      const id = notificationId.slice("reminder:".length);
+      const reminder = await db.reminders.get(id);
+      if (reminder?.taskId) {
+        await startFocusSession({ taskId: reminder.taskId, durationMinutes: 25, source: "system" });
+      }
+      await openSidePanel();
       return;
     }
     await openSidePanel();

@@ -1,4 +1,4 @@
-import { BellPlus, CheckCircle2, Clock3, ExternalLink, Focus, NotebookPen, Pencil } from "lucide-react";
+import { Archive, ArchiveRestore, BellPlus, CheckCircle2, Clock3, ExternalLink, Focus, NotebookPen, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { Task } from "../../shared/types";
 import { toTimeLabel } from "../../shared/utils/date";
@@ -12,11 +12,16 @@ import { ReminderDialog } from "./ReminderDialog";
 
 export function TaskCard({ task, compact = false }: { task: Task; compact?: boolean }) {
   const updateTask = useAppStore((store) => store.updateTask);
+  const updateTaskWithUndo = useAppStore((store) => store.updateTaskWithUndo);
+  const deleteTaskWithUndo = useAppStore((store) => store.deleteTaskWithUndo);
+  const pendingUndo = useAppStore((store) => store.pendingUndo);
+  const undoLastTaskAction = useAppStore((store) => store.undoLastTaskAction);
   const startFocus = useAppStore((store) => store.startFocus);
   const capturePage = useAppStore((store) => store.capturePage);
   const [editorOpen, setEditorOpen] = useState(false);
   const [reminderOpen, setReminderOpen] = useState(false);
   const tone = task.priority === "critical" ? "critical" : task.status === "completed" ? "success" : task.status === "blocked" ? "warning" : "blue";
+  const undoVisible = pendingUndo?.taskId === task.id;
   const rail =
     task.priority === "critical"
       ? "bg-oc-critical"
@@ -70,15 +75,41 @@ export function TaskCard({ task, compact = false }: { task: Task; compact?: bool
             </Button>
           </>
         ) : null}
-        <Button size="sm" variant="success" onClick={() => updateTask(task.id, { status: "completed", completion: 100 })}>
-          <CheckCircle2 size={14} /> Complete
-        </Button>
-        {!compact ? (
-          <Button size="sm" variant="ghost" onClick={() => updateTask(task.id, { status: "active" })}>
-            <Clock3 size={14} /> Resume
+        {task.status !== "completed" ? (
+          <Button size="sm" variant="success" onClick={() => updateTaskWithUndo(task.id, { status: "completed", completion: 100 }, "complete task")}>
+            <CheckCircle2 size={14} /> Complete
           </Button>
         ) : null}
+        {!compact ? (
+          <>
+            <Button size="sm" variant="ghost" onClick={() => updateTaskWithUndo(task.id, { status: "active" }, "resume task")}>
+              <Clock3 size={14} /> Resume
+            </Button>
+            {task.status === "archived" ? (
+              <Button size="sm" variant="secondary" onClick={() => updateTaskWithUndo(task.id, { status: "pending" }, "restore task")}>
+                <ArchiveRestore size={14} /> Restore
+              </Button>
+            ) : (
+              <Button size="sm" variant="ghost" onClick={() => updateTaskWithUndo(task.id, { status: "archived" }, "archive task")}>
+                <Archive size={14} /> Archive
+              </Button>
+            )}
+            <Button size="sm" variant="danger" onClick={() => deleteTaskWithUndo(task.id)}>
+              <Trash2 size={14} /> Delete
+            </Button>
+          </>
+        ) : null}
       </div>
+      {undoVisible ? (
+        <div className="rounded-lg border border-oc-blue/35 bg-oc-blue/10 px-3 py-2 text-xs text-oc-blue">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>{pendingUndo?.label ?? "Action"} applied.</span>
+            <Button size="sm" variant="secondary" onClick={() => undoLastTaskAction()}>
+              <RotateCcw size={14} /> Undo
+            </Button>
+          </div>
+        </div>
+      ) : null}
       </div>
       <TaskEditorDialog task={task} open={editorOpen} onOpenChange={setEditorOpen} />
       <ReminderDialog task={task} open={reminderOpen} onOpenChange={setReminderOpen} />

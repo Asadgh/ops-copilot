@@ -30,6 +30,15 @@ For UI regression checks, run `npm.cmd run build` first, then `npm.cmd run smoke
 - `dashboard.html`: full dashboard/options view.
 - `background.js`: MV3 service worker for storage access, side panel opening, alarms, notifications, AI/voice calls, current-page task capture, context menus, and privileged runtime messages.
 
+## Workflow Highlights
+
+- Task templates for incidents, follow-ups, audits, blockers, and reminders.
+- Global search across tasks, notes, blockers, browser captures, reports, and timeline events.
+- Command palette with `Ctrl+K` / `Cmd+K` for capture, briefing, cleanup, focus, reports, templates, settings, and theme switching.
+- Undo window for task status changes such as complete, resume, archive, and restore.
+- Daily briefing and AI cleanup actions with local fallbacks when AI is off.
+- Editable voice transcript confirmation before a spoken command is executed.
+
 ## OpenAI
 
 AI and voice are optional. Add an OpenAI API key in Settings. The key is stored in `chrome.storage.local`, access is restricted to trusted extension contexts, and content scripts only communicate through the background worker.
@@ -43,6 +52,6 @@ Default models:
 ## Notes
 
 - Active data is stored locally in IndexedDB through Dexie.
-- Tasks and recent operational data are also backed up to `chrome.storage.sync` and restored automatically when the local database is empty after reinstall. Restore depends on the same Chrome profile, sync storage availability, and a stable extension ID. OpenAI API keys are not included in this backup.
+- Tasks and recent operational data are also backed up to `chrome.storage.sync` and restored automatically when the local database is empty after reinstall. Settings includes backup status, sync merge/replace controls, and full manual JSON export/import. Restore depends on the same Chrome profile, sync storage availability, and a stable extension ID. OpenAI API keys are not included in backups.
 - Reminders and focus completions use `chrome.alarms` so they survive MV3 service worker sleep.
 - CSV, Excel, Markdown, and TXT exports are implemented. PDF remains future scope per the spec.

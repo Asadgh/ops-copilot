@@ -1,5 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { Bell, Clock3, X } from "lucide-react";
+import { Bell, CheckCircle2, Clock3, Focus, X } from "lucide-react";
 import { useMemo } from "react";
 import { useAppStore } from "../../app/store";
 import { toTimeLabel } from "../../shared/utils/date";
@@ -8,8 +8,11 @@ import { EmptyState } from "./EmptyState";
 
 export function NotificationCenterDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const reminders = useAppStore((store) => store.reminders);
+  const tasks = useAppStore((store) => store.tasks);
   const snoozeReminder = useAppStore((store) => store.snoozeReminder);
   const dismissReminder = useAppStore((store) => store.dismissReminder);
+  const startFocus = useAppStore((store) => store.startFocus);
+  const updateTaskWithUndo = useAppStore((store) => store.updateTaskWithUndo);
   const setActiveView = useAppStore((store) => store.setActiveView);
   const visibleReminders = useMemo(
     () => reminders.filter((reminder) => reminder.status !== "dismissed").sort((a, b) => a.dueAt - b.dueAt),
@@ -45,8 +48,15 @@ export function NotificationCenterDialog({ open, onOpenChange }: { open: boolean
                     </div>
                     {reminder.dueAt <= Date.now() ? <span className="rounded-full bg-oc-warning/12 px-2 py-1 text-[11px] font-semibold text-oc-warning">Due</span> : null}
                   </div>
+                  {reminder.taskId ? <p className="mt-2 text-xs text-oc-muted">Task: {tasks.find((task) => task.id === reminder.taskId)?.task ?? "Linked task"}</p> : null}
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <Button size="sm" onClick={() => { setActiveView("tasks"); onOpenChange(false); }}>Resume</Button>
+                    <Button size="sm" onClick={() => { setActiveView("tasks"); onOpenChange(false); }}>Open Task</Button>
+                    {reminder.taskId ? (
+                      <>
+                        <Button size="sm" variant="primary" onClick={() => startFocus(reminder.taskId, 25)}><Focus size={14} /> Focus</Button>
+                        <Button size="sm" variant="success" onClick={() => updateTaskWithUndo(reminder.taskId!, { status: "completed", completion: 100 }, "complete reminder task")}><CheckCircle2 size={14} /> Complete</Button>
+                      </>
+                    ) : null}
                     <Button size="sm" variant="ghost" onClick={() => snoozeReminder(reminder.id, 10)}>Snooze 10m</Button>
                     <Button size="sm" variant="danger" onClick={() => dismissReminder(reminder.id)}>Dismiss</Button>
                   </div>

@@ -13,14 +13,17 @@ import type {
   Report,
   RuntimeResponse,
   Shift,
-  Task
+  Task,
+  TaskCleanupSuggestion
 } from "../shared/types";
 import { db } from "../shared/storage/db";
 import { clearOpenAIApiKey, ensureDefaultShift, getAppSettings, hasOpenAIApiKey, setOpenAIApiKey, updateAppSettings } from "../shared/storage/settings";
 import {
   createReminder,
   createTask,
+  deleteTask,
   listTasks,
+  restoreTask,
   saveDailyPlan,
   saveReport,
   saveShift,
@@ -33,8 +36,10 @@ import { executeCommand as executeLocalCommand } from "../shared/services/comman
 import { generateDailyPlan } from "../shared/services/planner";
 import { createLocalReport, exportTasks } from "../shared/services/reports";
 import { buildShutdownReport } from "../shared/services/localAi";
+import { buildDailyBriefingLocal, cleanupTasksLocal } from "../shared/services/localAi";
 import { downloadExport, hasRuntime, sendRuntimeMessage } from "../shared/chrome";
 import { restoreFromSyncBackupIfEmpty } from "../shared/storage/syncBackup";
+import { taskFromTemplate, TASK_TEMPLATES } from "../shared/taskTemplates";
 
 export type ViewKey = "overview" | "tasks" | "plan" | "focus" | "timeline" | "reports" | "insights" | "settings";
 
@@ -60,11 +65,18 @@ type AppStore = {
   hasApiKey: boolean;
   stats: { total: number; active: number; blocked: number; completed: number; focusMinutes: number };
   terminal: TerminalLine[];
+  searchQuery: string;
+  pendingUndo?: { taskId: string; before: Task; label: string; expiresAt: number };
   setMode: (mode: "sidepanel" | "dashboard") => void;
   setActiveView: (view: ViewKey) => void;
+  setSearchQuery: (query: string) => void;
   load: () => Promise<void>;
   createTask: (input: Partial<Task>) => Promise<Task>;
   updateTask: (id: string, patch: Partial<Task>) => Promise<Task>;
+  updateTaskWithUndo: (id: string, patch: Partial<Task>, label: string) => Promise<Task>;
+  deleteTaskWithUndo: (id: string) => Promise<void>;
+  undoLastTaskAction: () => Promise<void>;
+  createTaskFromTemplate: (templateKey: string) => Promise<Task | undefined>;
   startFocus: (taskId?: string, durationMinutes?: number) => Promise<void>;
   scheduleReminder: (input: { taskId?: string; title: string; dueAt: number }) => Promise<void>;
   snoozeReminder: (id: string, minutes?: number) => Promise<void>;
@@ -76,6 +88,8 @@ type AppStore = {
   exportData: (format: ExportFormat) => Promise<void>;
   executeCommand: (command: string) => Promise<RuntimeResponse>;
   capturePage: (taskId?: string) => Promise<void>;
+  cleanupTasks: () => Promise<void>;
+  generateDailyBriefing: () => Promise<void>;
   saveSettings: (patch: Partial<AppSettings>) => Promise<void>;
   saveShift: (shift: Shift) => Promise<void>;
   saveApiKey: (value: string) => Promise<void>;
@@ -116,9 +130,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
   hasApiKey: false,
   stats: emptyStats,
   terminal: [terminalLine("info", "Ops Copilot ready.")],
+  searchQuery: "",
 
   setMode: (mode) => set({ mode }),
   setActiveView: (activeView) => set({ activeView }),
+  setSearchQuery: (searchQuery) => set({ searchQuery }),
 
   load: async () => {
     set({ loading: true });
@@ -149,6 +165,75 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   updateTask: async (id, patch) => {
     const task = await updateTask(id, patch, "ui");
+    await get().load();
+    return task;
+  },
+
+  updateTaskWithUndo: async (id, patch, label) => {
+    const before = get().tasks.find((task) => task.id === id);
+    const task = await updateTask(id, patch, "ui");
+    if (before) {
+      if (get().pendingUndo?.taskId === id) {
+        set({ pendingUndo: undefined });
+      }
+      set({
+        pendingUndo: {
+          taskId: id,
+          before,
+          label,
+          expiresAt: Date.now() + 7000
+        }
+      });
+      window.setTimeout(() => {
+        const pending = get().pendingUndo;
+        if (pending?.taskId === id && pending.expiresAt <= Date.now()) {
+          set({ pendingUndo: undefined });
+        }
+      }, 7200);
+    }
+    await get().load();
+    return task;
+  },
+
+  deleteTaskWithUndo: async (id) => {
+    const before = get().tasks.find((task) => task.id === id);
+    if (!before) return;
+    await deleteTask(id, "ui");
+    set({
+      pendingUndo: {
+        taskId: id,
+        before,
+        label: "delete task",
+        expiresAt: Date.now() + 7000
+      }
+    });
+    window.setTimeout(() => {
+      const pending = get().pendingUndo;
+      if (pending?.taskId === id && pending.expiresAt <= Date.now()) {
+        set({ pendingUndo: undefined });
+      }
+    }, 7200);
+    await get().load();
+  },
+
+  undoLastTaskAction: async () => {
+    const pending = get().pendingUndo;
+    if (!pending) return;
+    const current = await db.tasks.get(pending.taskId);
+    if (current) {
+      await updateTask(pending.taskId, pending.before, "ui");
+    } else {
+      await restoreTask(pending.before, "ui");
+    }
+    set({ pendingUndo: undefined, terminal: [...get().terminal, terminalLine("success", `Undid: ${pending.label}`)].slice(-80) });
+    await get().load();
+  },
+
+  createTaskFromTemplate: async (templateKey) => {
+    const template = TASK_TEMPLATES.find((item) => item.key === templateKey);
+    if (!template) return undefined;
+    const task = await createTask(taskFromTemplate(template), "ui");
+    set((state) => ({ terminal: [...state.terminal, terminalLine("success", `Created ${template.label} task.`)].slice(-80) }));
     await get().load();
     return task;
   },
@@ -253,6 +338,51 @@ export const useAppStore = create<AppStore>((set, get) => ({
     if (hasRuntime()) {
       await sendRuntimeMessage({ type: "CAPTURE_PAGE", payload: { taskId } });
     }
+    await get().load();
+  },
+
+  cleanupTasks: async () => {
+    const tasks = get().tasks.filter((task) => task.status !== "archived");
+    const response = hasRuntime()
+      ? await sendRuntimeMessage<{ suggestions: TaskCleanupSuggestion[] }>({ type: "AI_CLEANUP_TASKS", payload: { tasks } })
+      : { ok: true, data: { suggestions: cleanupTasksLocal(tasks) } };
+    const suggestions = response.ok ? response.data?.suggestions ?? [] : cleanupTasksLocal(tasks);
+    for (const suggestion of suggestions) {
+      const task = get().tasks.find((item) => item.id === suggestion.taskId) ?? (await db.tasks.get(suggestion.taskId));
+      if (!task) continue;
+      await updateTask(suggestion.taskId, {
+        task: suggestion.task ?? task.task,
+        notes: suggestion.notes ? `${task.notes ? `${task.notes}\n` : ""}${suggestion.notes}` : task.notes,
+        tags: suggestion.tags ?? task.tags,
+        status: suggestion.status ?? task.status
+      }, "ai");
+    }
+    set((state) => ({
+      terminal: [
+        ...state.terminal,
+        terminalLine(suggestions.length ? "success" : "info", suggestions.length ? `Applied ${suggestions.length} task cleanup suggestions.` : "No cleanup changes suggested.")
+      ].slice(-80)
+    }));
+    await get().load();
+  },
+
+  generateDailyBriefing: async () => {
+    const { tasks, reminders, shifts } = get();
+    const response = hasRuntime()
+      ? await sendRuntimeMessage<{ briefing: string }>({ type: "AI_DAILY_BRIEFING", payload: { tasks, reminders, shifts } })
+      : { ok: true, data: { briefing: buildDailyBriefingLocal({ tasks, reminders, shifts }) } };
+    const briefing = response.ok && response.data?.briefing ? response.data.briefing : buildDailyBriefingLocal({ tasks, reminders, shifts });
+    await saveReport({
+      id: createId("report"),
+      type: "daily",
+      title: `Daily Briefing - ${toDateKey()}`,
+      createdAt: Date.now(),
+      periodStart: startOfToday(),
+      periodEnd: Date.now(),
+      content: briefing,
+      aiGenerated: response.ok
+    });
+    set((state) => ({ terminal: [...state.terminal, terminalLine("success", briefing)].slice(-80) }));
     await get().load();
   },
 

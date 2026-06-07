@@ -1,4 +1,4 @@
-import { CalendarClock, CheckCircle2, CircleAlert, Focus, RefreshCw, RadioTower } from "lucide-react";
+import { CalendarClock, CheckCircle2, CircleAlert, Focus, RefreshCw, RadioTower, Sparkles } from "lucide-react";
 import { useAppStore } from "../../app/store";
 import { DEFAULT_SHIFT } from "../../shared/constants";
 import { formatDuration, isWithinShift, toTimeLabel } from "../../shared/utils/date";
@@ -32,6 +32,7 @@ export function OverviewView() {
   const events = useAppStore((store) => store.events);
   const shifts = useAppStore((store) => store.shifts);
   const generatePlan = useAppStore((store) => store.generatePlan);
+  const generateDailyBriefing = useAppStore((store) => store.generateDailyBriefing);
   const activeSession = sessions.find((session) => session.status === "active");
   const plan = plans[0];
   const liveTasks = tasks.filter((task) => task.status === "active" || task.status === "blocked").slice(0, 5);
@@ -53,6 +54,7 @@ export function OverviewView() {
           <span className="oc-pill">{shift.startHour}-{shift.endHour}</span>
           <span className="oc-pill">{stats.active} active</span>
           <span className="oc-pill border-oc-warning/35 bg-oc-warning/10 text-oc-warning">{stats.blocked} blocked</span>
+          <Button size="sm" variant="primary" onClick={() => generateDailyBriefing()}><Sparkles size={14} /> Briefing</Button>
         </div>
       </div>
 
