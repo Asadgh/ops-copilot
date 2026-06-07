@@ -228,13 +228,11 @@ export type RuntimeResponse<T = unknown> = {
 
 export type RuntimeMessage =
   | { type: "OPEN_SIDE_PANEL"; tabId?: number; windowId?: number }
-  | { type: "GET_LAUNCHER_SETTINGS"; hostname?: string }
-  | { type: "UPDATE_LAUNCHER_POSITION"; payload: { positionY: number } }
   | { type: "CREATE_TASK"; payload: Partial<Task> }
   | { type: "CAPTURE_PAGE"; payload?: { taskId?: string; selectedText?: string } }
   | { type: "START_FOCUS"; payload: { taskId?: string; durationMinutes: number } }
   | { type: "SCHEDULE_REMINDER"; payload: { taskId?: string; title: string; dueAt: number } }
-  | { type: "VOICE_TRANSCRIBE"; payload: { audio: ArrayBuffer; mimeType: string } }
+  | { type: "VOICE_TRANSCRIBE"; payload: { audioBase64: string; mimeType: string } }
   | { type: "AI_PARSE_COMMAND" | "AI_SUMMARIZE" | "AI_REPORT"; payload: unknown }
   | { type: "EXECUTE_COMMAND"; payload: { command: string; source?: "terminal" | "voice" | "launcher" | "ui" } }
   | { type: "EXPORT_REPORT"; payload: { format: ExportFormat; filters: ReportFilters } };
@@ -245,8 +243,6 @@ export const ExportFormatSchema = z.enum(exportFormatValues);
 
 export const RuntimeMessageSchema: z.ZodType<RuntimeMessage> = z.discriminatedUnion("type", [
   z.object({ type: z.literal("OPEN_SIDE_PANEL"), tabId: z.number().optional(), windowId: z.number().optional() }),
-  z.object({ type: z.literal("GET_LAUNCHER_SETTINGS"), hostname: z.string().optional() }),
-  z.object({ type: z.literal("UPDATE_LAUNCHER_POSITION"), payload: z.object({ positionY: z.number().min(0).max(1) }) }),
   z.object({ type: z.literal("CREATE_TASK"), payload: z.record(z.unknown()) }),
   z.object({
     type: z.literal("CAPTURE_PAGE"),
@@ -254,7 +250,7 @@ export const RuntimeMessageSchema: z.ZodType<RuntimeMessage> = z.discriminatedUn
   }),
   z.object({ type: z.literal("START_FOCUS"), payload: z.object({ taskId: z.string().optional(), durationMinutes: z.number().min(1) }) }),
   z.object({ type: z.literal("SCHEDULE_REMINDER"), payload: z.object({ taskId: z.string().optional(), title: z.string(), dueAt: z.number() }) }),
-  z.object({ type: z.literal("VOICE_TRANSCRIBE"), payload: z.object({ audio: z.instanceof(ArrayBuffer), mimeType: z.string() }) }),
+  z.object({ type: z.literal("VOICE_TRANSCRIBE"), payload: z.object({ audioBase64: z.string().min(1), mimeType: z.string() }) }),
   z.object({ type: z.literal("AI_PARSE_COMMAND"), payload: z.unknown() }),
   z.object({ type: z.literal("AI_SUMMARIZE"), payload: z.unknown() }),
   z.object({ type: z.literal("AI_REPORT"), payload: z.unknown() }),

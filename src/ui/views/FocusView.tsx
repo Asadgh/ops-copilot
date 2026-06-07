@@ -13,7 +13,7 @@ export function FocusView() {
   const activeTask = activeSession?.taskId ? tasks.find((task) => task.id === activeSession.taskId) : undefined;
 
   return (
-    <div className="space-y-4 p-4">
+    <div className="oc-page space-y-4">
       <Card className="grid min-h-[280px] place-items-center text-center">
         {activeSession ? (
           <div>
@@ -41,7 +41,7 @@ export function FocusView() {
         <SectionTitle title="Focus History" subtitle={`Completed focus: ${formatDuration(sessions.filter((session) => session.status === "completed").reduce((sum, session) => sum + session.durationMinutes, 0))}`} />
         <div className="space-y-2">
           {sessions.slice(0, 8).map((session) => (
-            <div key={session.id} className="flex items-center justify-between rounded-md border border-oc-border bg-oc-elevated/42 p-3 text-xs">
+            <div key={session.id} className="flex items-center justify-between rounded-lg border border-oc-border/58 bg-oc-elevated/34 p-3 text-xs">
               <span>{session.durationMinutes} minute session</span>
               <span className="text-oc-muted">{session.status} | {toTimeLabel(session.startTime)}</span>
             </div>

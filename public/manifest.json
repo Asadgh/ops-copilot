@@ -12,7 +12,8 @@
     "activeTab",
     "contextMenus",
     "sidePanel",
-    "scripting"
+    "scripting",
+    "audioCapture"
   ],
   "host_permissions": [
     "<all_urls>",
@@ -41,13 +42,6 @@
     "128": "icons/icon128.png"
   },
   "options_page": "dashboard.html",
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
-      "run_at": "document_idle"
-    }
-  ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   }

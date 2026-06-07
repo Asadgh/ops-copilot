@@ -11,17 +11,23 @@ export default defineConfig({
       input: {
         sidepanel: resolve(__dirname, "sidepanel.html"),
         dashboard: resolve(__dirname, "dashboard.html"),
-        background: resolve(__dirname, "src/background/serviceWorker.ts"),
-        content: resolve(__dirname, "src/content/launcher.ts")
+        background: resolve(__dirname, "src/background/serviceWorker.ts")
       },
       output: {
         entryFileNames: (chunk) => {
           if (chunk.name === "background") return "background.js";
-          if (chunk.name === "content") return "content.js";
           return "assets/[name]-[hash].js";
         },
         chunkFileNames: "assets/[name]-[hash].js",
-        assetFileNames: "assets/[name]-[hash][extname]"
+        assetFileNames: "assets/[name]-[hash][extname]",
+        manualChunks: (id) => {
+          if (!id.includes("node_modules")) return undefined;
+          if (id.includes("@xterm")) return "terminal";
+          if (id.includes("recharts") || id.includes("d3-") || id.includes("victory-vendor")) return "charts";
+          if (id.includes("xlsx")) return "xlsx";
+          if (id.includes("react") || id.includes("scheduler") || id.includes("zustand") || id.includes("dexie")) return "vendor";
+          return undefined;
+        }
       }
     }
   }

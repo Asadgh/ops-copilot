@@ -19,7 +19,7 @@ export function TasksView() {
   );
 
   return (
-    <div className="mx-auto max-w-[1400px] space-y-4 p-4">
+    <div className="oc-page space-y-4">
       <Card>
         <SectionTitle
           title="Task Board"
@@ -28,14 +28,14 @@ export function TasksView() {
         />
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <SlidersHorizontal size={14} className="text-oc-muted" />
-          <select className="rounded border border-oc-border bg-oc-bg px-2 py-1.5" value={priority} onChange={(event) => setPriority(event.target.value as Priority | "all")}>
+          <select className="oc-select px-3 py-2" value={priority} onChange={(event) => setPriority(event.target.value as Priority | "all")}>
             <option value="all">All priorities</option>
             <option value="critical">Critical</option>
             <option value="high">High</option>
             <option value="medium">Medium</option>
             <option value="low">Low</option>
           </select>
-          <select className="rounded border border-oc-border bg-oc-bg px-2 py-1.5" value={status} onChange={(event) => setStatus(event.target.value as TaskStatus | "all")}>
+          <select className="oc-select px-3 py-2" value={status} onChange={(event) => setStatus(event.target.value as TaskStatus | "all")}>
             <option value="all">All status</option>
             <option value="pending">Pending</option>
             <option value="active">Active</option>

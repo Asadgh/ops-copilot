@@ -50,7 +50,8 @@ function formFromTask(task?: Task): TaskFormState {
 
 function fieldClass(multiline = false): string {
   return [
-    "w-full rounded border border-oc-border bg-oc-bg px-3 text-sm text-oc-text placeholder:text-oc-muted",
+    "w-full border border-oc-border/78 bg-oc-bg/72 px-3 text-sm text-oc-text placeholder:text-oc-muted",
+    multiline ? "oc-textarea" : "oc-input",
     multiline ? "min-h-24 py-2 leading-5" : "h-9 py-1.5"
   ].join(" ");
 }
@@ -128,12 +129,12 @@ export function TaskEditorDialog({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/64" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[92vh] w-[min(760px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-md border border-oc-border bg-oc-surface shadow-2xl">
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/62 backdrop-blur-sm" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[92vh] w-[min(760px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg border border-oc-border/70 bg-oc-surface shadow-2xl shadow-black/35">
           <form onSubmit={submit}>
-            <div className="flex items-start justify-between gap-4 border-b border-oc-border px-4 py-3">
+            <div className="flex items-start justify-between gap-4 border-b border-oc-border/55 px-4 py-3">
               <div>
-                <Dialog.Title className="text-sm font-semibold uppercase tracking-[0.08em] text-oc-text">{title}</Dialog.Title>
+                <Dialog.Title className="text-base font-semibold text-oc-text">{title}</Dialog.Title>
                 <Dialog.Description className="mt-1 text-xs text-oc-muted">{description}</Dialog.Description>
               </div>
               <Dialog.Close asChild>
@@ -197,7 +198,7 @@ export function TaskEditorDialog({
               {error ? <p className="mt-3 text-xs text-oc-critical">{error}</p> : null}
             </div>
 
-            <div className="flex justify-end gap-2 border-t border-oc-border px-4 py-3">
+            <div className="flex justify-end gap-2 border-t border-oc-border/55 px-4 py-3">
               <Dialog.Close asChild>
                 <Button type="button" variant="ghost">Cancel</Button>
               </Dialog.Close>

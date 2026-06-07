@@ -23,7 +23,7 @@ export function ReportsView() {
   const topBlockers = tasks.filter((task) => task.blockers).slice(0, 5);
 
   return (
-    <div className="space-y-4 p-4">
+    <div className="oc-page space-y-4">
       <Card>
         <SectionTitle
           title="Reports & Analytics"
@@ -36,15 +36,15 @@ export function ReportsView() {
           }
         />
         <div className="grid gap-3 md:grid-cols-3">
-          <div className="rounded-md border border-oc-border bg-oc-elevated/42 p-3">
+          <div className="rounded-lg border border-oc-border/58 bg-oc-elevated/34 p-3">
             <p className="text-xs text-oc-muted">Total Focus Time</p>
             <p className="mt-1 text-xl font-semibold">{formatDuration(stats.focusMinutes)}</p>
           </div>
-          <div className="rounded-md border border-oc-border bg-oc-elevated/42 p-3">
+          <div className="rounded-lg border border-oc-border/58 bg-oc-elevated/34 p-3">
             <p className="text-xs text-oc-muted">Completed Tasks</p>
             <p className="mt-1 text-xl font-semibold text-oc-success">{stats.completed}</p>
           </div>
-          <div className="rounded-md border border-oc-border bg-oc-elevated/42 p-3">
+          <div className="rounded-lg border border-oc-border/58 bg-oc-elevated/34 p-3">
             <p className="text-xs text-oc-muted">Blocked Tasks</p>
             <p className="mt-1 text-xl font-semibold text-oc-warning">{stats.blocked}</p>
           </div>
@@ -73,7 +73,7 @@ export function ReportsView() {
           <SectionTitle title="Top Blockers" />
           <div className="space-y-2">
             {topBlockers.map((task) => (
-              <div key={task.id} className="rounded-md border border-oc-border bg-oc-elevated/40 p-3 text-xs">
+              <div key={task.id} className="rounded-lg border border-oc-border/58 bg-oc-elevated/32 p-3 text-xs">
                 <p className="font-medium text-oc-text">{task.task}</p>
                 <p className="mt-1 text-oc-warning">{task.blockers}</p>
               </div>
@@ -85,7 +85,7 @@ export function ReportsView() {
           <SectionTitle title="Saved Reports" />
           <div className="space-y-2">
             {reports.slice(0, 5).map((report) => (
-              <article key={report.id} className="rounded-md border border-oc-border bg-oc-elevated/40 p-3 text-xs">
+              <article key={report.id} className="rounded-lg border border-oc-border/58 bg-oc-elevated/32 p-3 text-xs">
                 <p className="font-medium text-oc-text">{report.title}</p>
                 <p className="mt-1 text-oc-muted">{report.aiGenerated ? "AI generated" : "Local"} | {report.type}</p>
               </article>

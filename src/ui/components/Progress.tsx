@@ -8,8 +8,8 @@ export function Progress({ value, tone = "blue" }: { value: number; tone?: "blue
           ? "bg-oc-critical"
           : "bg-oc-blue";
   return (
-    <div className="h-1.5 overflow-hidden rounded-full bg-oc-elevated">
-      <div className={`${color} h-full rounded-full transition-all`} style={{ width: `${Math.min(Math.max(value, 0), 100)}%` }} />
+    <div className="h-2 overflow-hidden rounded-full bg-oc-elevated/80">
+      <div className={`${color} h-full rounded-full transition-all duration-300`} style={{ width: `${Math.min(Math.max(value, 0), 100)}%` }} />
     </div>
   );
 }

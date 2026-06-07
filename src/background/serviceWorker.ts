@@ -1,8 +1,7 @@
 import { RuntimeMessageSchema, type ExportPayload, type RuntimeMessage, type RuntimeResponse, type VoiceResult } from "../shared/types";
-import { isWithinShift } from "../shared/utils/date";
 import { createId } from "../shared/utils/id";
 import { db } from "../shared/storage/db";
-import { ensureDefaultShift, getAppSettings, initTrustedStorageAccess, updateLauncherSettings } from "../shared/storage/settings";
+import { ensureDefaultShift, getAppSettings, initTrustedStorageAccess } from "../shared/storage/settings";
 import {
   completeFocusSession,
   createCapture,
@@ -28,20 +27,39 @@ function errorResponse(error: unknown): RuntimeResponse {
   return { ok: false, error: error instanceof Error ? error.message : String(error) };
 }
 
-async function openSidePanel(tabId?: number, windowId?: number): Promise<void> {
-  if (!chrome.sidePanel?.open) return;
-  if (tabId) {
-    await chrome.sidePanel.open({ tabId });
-    return;
+function base64ToArrayBuffer(value: string): ArrayBuffer {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
   }
-  if (windowId) {
-    await chrome.sidePanel.open({ windowId });
-    return;
+  return bytes.buffer;
+}
+
+async function openSidePanel(tabId?: number, windowId?: number): Promise<{ mode: "sidePanel" | "tab"; message: string }> {
+  if (chrome.sidePanel?.open) {
+    try {
+      if (tabId) {
+        await chrome.sidePanel.open({ tabId });
+        return { mode: "sidePanel", message: "Side panel opened" };
+      }
+      if (windowId) {
+        await chrome.sidePanel.open({ windowId });
+        return { mode: "sidePanel", message: "Side panel opened" };
+      }
+      const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (active?.id) {
+        await chrome.sidePanel.open({ tabId: active.id });
+        return { mode: "sidePanel", message: "Side panel opened" };
+      }
+    } catch {
+      // Fall through to the tab fallback when Chrome rejects sidePanel.open,
+      // which can happen when user activation is not propagated from a page.
+    }
   }
-  const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (active?.id) {
-    await chrome.sidePanel.open({ tabId: active.id });
-  }
+
+  const tab = await chrome.tabs.create({ active: true, url: chrome.runtime.getURL("sidepanel.html") });
+  return { mode: "tab", message: tab.id ? "Opened Ops Copilot in a tab" : "Opened Ops Copilot" };
 }
 
 async function currentTab(sender?: chrome.runtime.MessageSender): Promise<chrome.tabs.Tab | undefined> {
@@ -50,21 +68,80 @@ async function currentTab(sender?: chrome.runtime.MessageSender): Promise<chrome
   return tab;
 }
 
-function siteDisabled(disabledSites: string[], hostname?: string): boolean {
-  if (!hostname) return false;
-  return disabledSites.some((site) => {
-    const normalized = site.trim().replace(/^https?:\/\//, "").replace(/^www\./, "");
-    if (!normalized) return false;
-    return hostname.replace(/^www\./, "") === normalized || hostname.endsWith(`.${normalized}`);
-  });
+type PageContext = {
+  title: string;
+  url: string;
+  selectedText?: string;
+  description?: string;
+  headings: string[];
+  excerpt?: string;
+};
+
+function canInspectPage(url?: string): boolean {
+  return Boolean(url && /^https?:\/\//.test(url));
 }
 
-async function handleLauncherSettings(hostname?: string) {
-  const [settings, shift] = await Promise.all([getAppSettings(), ensureDefaultShift()]);
-  const launcher = { ...settings.launcher };
-  if (siteDisabled(launcher.disabledSites, hostname)) launcher.visible = false;
-  if (launcher.showOnlyDuringShift && !isWithinShift(shift)) launcher.visible = false;
-  return launcher;
+function compactText(value?: string, maxLength = 6000): string | undefined {
+  const text = value?.replace(/\s+/g, " ").trim();
+  return text ? text.slice(0, maxLength) : undefined;
+}
+
+async function readPageContext(tab?: chrome.tabs.Tab, selectedText?: string): Promise<PageContext> {
+  if (!tab?.id || !canInspectPage(tab.url)) {
+    throw new Error("Open a regular webpage first. Chrome pages and extension pages cannot be inspected for task creation.");
+  }
+
+  try {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        const metaDescription =
+          document.querySelector<HTMLMetaElement>('meta[name="description"]')?.content ||
+          document.querySelector<HTMLMetaElement>('meta[property="og:description"]')?.content ||
+          "";
+        const headings = Array.from(document.querySelectorAll("h1,h2,h3"))
+          .map((element) => element.textContent?.replace(/\s+/g, " ").trim())
+          .filter((text): text is string => Boolean(text))
+          .slice(0, 10);
+        const root = document.querySelector("main, article") ?? document.body;
+        const excerpt = (root?.textContent || document.body?.textContent || "").replace(/\s+/g, " ").trim().slice(0, 5000);
+        return {
+          title: document.title,
+          url: location.href,
+          selectedText: window.getSelection()?.toString().trim() || "",
+          description: metaDescription.trim(),
+          headings,
+          excerpt
+        };
+      }
+    });
+    const page = result?.result as PageContext | undefined;
+    return {
+      title: compactText(page?.title, 180) || tab.title || "Current page",
+      url: page?.url || tab.url || "",
+      selectedText: compactText(selectedText || page?.selectedText, 3000),
+      description: compactText(page?.description, 1000),
+      headings: page?.headings ?? [],
+      excerpt: compactText(page?.excerpt, 5000)
+    };
+  } catch (error) {
+    return {
+      title: tab.title || "Current page",
+      url: tab.url || "",
+      selectedText: compactText(selectedText, 3000),
+      headings: [],
+      excerpt: error instanceof Error ? `Could not read page text: ${error.message}` : undefined
+    };
+  }
+}
+
+function pageContextForSummary(page: PageContext): string {
+  return [
+    page.selectedText ? `Selected text: ${page.selectedText}` : "",
+    page.description ? `Description: ${page.description}` : "",
+    page.headings.length ? `Headings: ${page.headings.join(" | ")}` : "",
+    page.excerpt ? `Visible page text: ${page.excerpt}` : ""
+  ].filter(Boolean).join("\n\n").slice(0, 7000);
 }
 
 async function createNotification(id: string, options: chrome.notifications.NotificationOptions<true>): Promise<void> {
@@ -92,18 +169,28 @@ async function scheduleFromRuntimeData(data: unknown): Promise<void> {
 
 async function handleCapture(message: Extract<RuntimeMessage, { type: "CAPTURE_PAGE" }>, sender?: chrome.runtime.MessageSender) {
   const tab = await currentTab(sender);
-  const title = tab?.title || "Captured browser page";
-  const url = tab?.url || "";
-  const selectedText = message.payload?.selectedText;
-  const summary = await summarizePageWithAI({ title, url, selectedText });
+  const page = await readPageContext(tab, message.payload?.selectedText);
+  const title = page.title || "Captured browser page";
+  const url = page.url || "";
+  const selectedText = page.selectedText;
+  const summaryInput = pageContextForSummary(page);
+  const summary = await summarizePageWithAI({ title, url, selectedText: summaryInput || selectedText });
   let taskId = message.payload?.taskId;
+  let task: Awaited<ReturnType<typeof createTask>> | undefined;
   if (!taskId) {
-    const task = await createTask(
+    const seedTitle = compactText(selectedText?.split(/[.!?]/)[0], 90);
+    task = await createTask(
       {
-        task: `Review: ${title}`,
+        task: seedTitle ? `Follow up: ${seedTitle}` : `Review: ${title}`,
         priority: "medium",
         location: title,
-        notes: selectedText || "",
+        notes: [
+          summary,
+          page.description ? `Description: ${page.description}` : "",
+          page.headings.length ? `Page sections: ${page.headings.join(" | ")}` : "",
+          page.excerpt ? `Excerpt: ${page.excerpt.slice(0, 1200)}` : ""
+        ].filter(Boolean).join("\n\n"),
+        tags: ["page", "capture"],
         metadata: { createdAt: Date.now(), updatedAt: Date.now(), sourceUrl: url, sourceTitle: title, pageSummary: summary }
       },
       "browser"
@@ -111,7 +198,7 @@ async function handleCapture(message: Extract<RuntimeMessage, { type: "CAPTURE_P
     taskId = task.id;
   }
   const capture = await createCapture({ taskId, title, url, selectedText, summary });
-  return respond({ capture, message: "Page captured" });
+  return respond({ task, capture, message: task ? "Task created from current page" : "Page captured" });
 }
 
 async function handleAiReport(payload: unknown) {
@@ -147,20 +234,11 @@ async function handleRuntimeMessage(raw: unknown, sender?: chrome.runtime.Messag
   const message = result.data;
 
   if (message.type === "OPEN_SIDE_PANEL") {
-    await openSidePanel(message.tabId ?? sender?.tab?.id, message.windowId);
-    return respond({ message: "Side panel opened" });
-  }
-
-  if (message.type === "GET_LAUNCHER_SETTINGS") {
-    return respond(await handleLauncherSettings(message.hostname));
-  }
-
-  if (message.type === "UPDATE_LAUNCHER_POSITION") {
-    return respond(await updateLauncherSettings({ positionY: message.payload.positionY }));
+    return respond(await openSidePanel(message.tabId ?? sender?.tab?.id, message.windowId ?? sender?.tab?.windowId));
   }
 
   if (message.type === "CREATE_TASK") {
-    return respond({ task: await createTask(message.payload, "launcher"), message: "Task created" });
+    return respond({ task: await createTask(message.payload, "ui"), message: "Task created" });
   }
 
   if (message.type === "CAPTURE_PAGE") {
@@ -180,7 +258,7 @@ async function handleRuntimeMessage(raw: unknown, sender?: chrome.runtime.Messag
   }
 
   if (message.type === "VOICE_TRANSCRIBE") {
-    const transcript = await transcribeAudio(message.payload.audio, message.payload.mimeType);
+    const transcript = await transcribeAudio(base64ToArrayBuffer(message.payload.audioBase64), message.payload.mimeType);
     const command = await parseCommandWithAI(transcript);
     const execution = await executeParsedCommand(command, "voice");
     await scheduleFromRuntimeData(execution.data);

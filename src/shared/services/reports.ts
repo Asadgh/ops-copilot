@@ -1,4 +1,3 @@
-import * as XLSX from "xlsx";
 import { FIELD_LABELS } from "../constants";
 import type { ExportFormat, ExportPayload, ReportFilters, Task } from "../types";
 import { endOfToday, formatDuration, startOfToday, toDateKey } from "../utils/date";
@@ -93,6 +92,7 @@ export async function exportTasks(format: ExportFormat, filters: ReportFilters =
   }
 
   if (format === "xlsx") {
+    const XLSX = await import("xlsx");
     const workbook = XLSX.utils.book_new();
     const sheet = XLSX.utils.json_to_sheet(rows);
     XLSX.utils.book_append_sheet(workbook, sheet, "Ops Copilot");

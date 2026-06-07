@@ -5,9 +5,28 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { useAppStore } from "../../app/store";
 import { Button } from "./Button";
 
+function cssColor(variable: string, fallback: string): string {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(variable).trim();
+  if (!raw) return fallback;
+  return `rgb(${raw.split(/\s+/).join(", ")})`;
+}
+
+function terminalTheme() {
+  return {
+    background: "transparent",
+    foreground: cssColor("--oc-text", "#f5f7fa"),
+    blue: cssColor("--oc-blue", "#5d8bf4"),
+    green: cssColor("--oc-success", "#22c55e"),
+    red: cssColor("--oc-critical", "#ef4444"),
+    yellow: cssColor("--oc-warning", "#f59e0b"),
+    brightBlack: cssColor("--oc-muted", "#9ba7b4")
+  };
+}
+
 export function TerminalConsole() {
   const terminalLines = useAppStore((store) => store.terminal);
   const executeCommand = useAppStore((store) => store.executeCommand);
+  const theme = useAppStore((store) => store.settings?.theme);
   const [command, setCommand] = useState("");
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -23,19 +42,18 @@ export function TerminalConsole() {
       fontFamily: "JetBrains Mono, Fira Code, monospace",
       fontSize: 11,
       rows: 5,
-      theme: {
-        background: "transparent",
-        foreground: "#f5f7fa",
-        blue: "#4da3ff",
-        green: "#22c55e",
-        red: "#ef4444",
-        yellow: "#f59e0b"
-      }
+      theme: terminalTheme()
     });
     terminal.open(containerRef.current);
     terminalRef.current = terminal;
     return () => terminal.dispose();
   }, []);
+
+  useEffect(() => {
+    if (terminalRef.current) {
+      terminalRef.current.options.theme = terminalTheme();
+    }
+  }, [theme]);
 
   useEffect(() => {
     const terminal = terminalRef.current;
@@ -59,13 +77,15 @@ export function TerminalConsole() {
   }
 
   return (
-    <div className="border-t border-oc-border bg-[#05080c]/95">
-      <div className="flex h-7 items-center justify-between border-b border-oc-border px-3">
-        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-oc-muted">Command Console</span>
-        <span className="font-mono text-[10px] text-oc-blue">READY</span>
+    <div className="border-t border-oc-border/55 bg-oc-surface/92 backdrop-blur-xl">
+      <div className="flex h-8 items-center justify-between border-b border-oc-border/55 px-3">
+        <span className="text-xs font-semibold text-oc-muted">Command console</span>
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-oc-success/10 px-2 py-1 text-[11px] font-semibold text-oc-success">
+          <span className="size-1.5 rounded-full bg-oc-success" /> Ready
+        </span>
       </div>
       <div ref={containerRef} className="h-[90px] overflow-hidden" />
-      <form className="flex items-center gap-2 border-t border-oc-border px-3 py-2" onSubmit={submit}>
+      <form className="flex items-center gap-2 border-t border-oc-border/55 px-3 py-2" onSubmit={submit}>
         <span className="font-mono text-xs text-oc-cyan">&gt;</span>
         <input
           value={command}
@@ -84,7 +104,7 @@ export function TerminalConsole() {
               setCommand(next === -1 ? "" : history[next] ?? "");
             }
           }}
-          className="min-w-0 flex-1 rounded border border-oc-border bg-oc-bg px-3 py-1.5 font-mono text-xs text-oc-text placeholder:text-oc-muted"
+          className="oc-input min-w-0 flex-1 px-3 py-2 font-mono text-xs placeholder:text-oc-muted"
           placeholder="new task investigate routing delay"
         />
         <Button size="icon" variant="primary" aria-label="Run command">

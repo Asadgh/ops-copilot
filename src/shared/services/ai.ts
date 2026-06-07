@@ -2,6 +2,21 @@ import type { ParsedCommand, ReportFilters, Task } from "../types";
 import { getAppSettings, getOpenAIApiKey } from "../storage/settings";
 import { parseCommand } from "./commandParser";
 import { summarizeCaptureLocal, summarizeTasksLocal } from "./localAi";
+import { parseReminderDueAt } from "./commandParser";
+
+const commandActions: ParsedCommand["action"][] = [
+  "createTask",
+  "addBlocker",
+  "setReminder",
+  "startFocus",
+  "capturePage",
+  "summarize",
+  "generatePlan",
+  "optimizePlan",
+  "shutdown",
+  "exportReport",
+  "unknown"
+];
 
 function extractOutputText(data: unknown): string {
   const root = data as { output_text?: string; output?: Array<{ content?: Array<{ text?: string; type?: string }> }> };
@@ -39,24 +54,52 @@ async function callOpenAIText(input: string, model?: string): Promise<string> {
   return extractOutputText(data).trim();
 }
 
+function extractJsonObject(text: string): string {
+  const fenced = text.match(/```(?:json)?\s*({[\s\S]*?})\s*```/i);
+  if (fenced?.[1]) return fenced[1];
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  return start >= 0 && end > start ? text.slice(start, end + 1) : text;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 export async function parseCommandWithAI(command: string): Promise<ParsedCommand> {
   const local = parseCommand(command);
   if (local.confidence >= 0.7) return local;
   const prompt = [
     "You are Ops Copilot, an operational command parser.",
-    "Return only JSON with action, payload, feedback, and confidence.",
+    "Return only one JSON object with action, payload, feedback, and confidence.",
     "Allowed actions: createTask, addBlocker, setReminder, startFocus, capturePage, summarize, generatePlan, optimizePlan, shutdown, exportReport, unknown.",
+    "For task titles, remove filler words like create/new/task/work on/remind me. Keep the real work item.",
+    "For commands that create a task and mention a reminder, use action createTask and include payload.task, payload.priority, and payload.reminderTitle. Relative reminder timing is handled separately by the app.",
+    "Examples:",
+    "Input: create high priority task investigate routing delay",
+    "Output: {\"action\":\"createTask\",\"payload\":{\"task\":\"investigate routing delay\",\"priority\":\"high\"},\"feedback\":\"Task queued: investigate routing delay\",\"confidence\":0.9}",
+    "Input: Create new task, work on Monthly Audit system for unreceived products. Remind me to start by midday",
+    "Output: {\"action\":\"createTask\",\"payload\":{\"task\":\"Monthly Audit system for unreceived products\",\"priority\":\"medium\",\"reminderTitle\":\"Start: Monthly Audit system for unreceived products\"},\"feedback\":\"Task and reminder queued: Monthly Audit system for unreceived products\",\"confidence\":0.9}",
     `Command: ${command}`
   ].join("\n");
   const text = await callOpenAIText(prompt);
   try {
-    const json = JSON.parse(text) as Partial<ParsedCommand>;
+    const json = JSON.parse(extractJsonObject(text)) as Partial<ParsedCommand>;
+    const action = commandActions.includes(json.action ?? "unknown") ? json.action ?? "unknown" : "unknown";
+    const payload = isRecord(json.payload) ? { ...json.payload } : {};
+    const dueAt = parseReminderDueAt(command);
+    if (dueAt && (action === "createTask" || action === "setReminder") && typeof payload.dueAt !== "number") {
+      payload.dueAt = dueAt;
+    }
+    if (dueAt && action === "createTask" && typeof payload.reminderTitle !== "string" && typeof payload.task === "string") {
+      payload.reminderTitle = `Reminder: ${payload.task}`;
+    }
     return {
-      action: json.action ?? "unknown",
+      action,
       raw: command,
-      payload: json.payload ?? {},
+      payload,
       feedback: json.feedback ?? "AI interpreted the command.",
-      confidence: typeof json.confidence === "number" ? json.confidence : 0.75,
+      confidence: typeof json.confidence === "number" ? Math.min(Math.max(json.confidence, 0), 1) : 0.75,
       source: "ai"
     };
   } catch {

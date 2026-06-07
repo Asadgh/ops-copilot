@@ -22,13 +22,13 @@ export function PlannerView() {
   }
 
   return (
-    <div className="space-y-4 p-4">
+    <div className="oc-page space-y-4">
       <Card>
         <SectionTitle
           title="Today's Plan"
           subtitle={plan?.rationale ?? "Editable operational planning, not rigid calendar scheduling."}
           action={
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button size="sm" onClick={() => generatePlan(false)}><RefreshCw size={14} /> Regenerate</Button>
               <Button size="sm" variant="primary" onClick={() => generatePlan(true)}><BrainCircuit size={14} /> Optimize</Button>
               {draft ? <Button size="sm" variant="success" onClick={() => savePlan(draft)}>Save</Button> : null}
@@ -38,18 +38,18 @@ export function PlannerView() {
         {draft ? (
           <div className="space-y-2">
             {draft.items.map((item) => (
-              <div key={item.id} className="grid grid-cols-[18px_92px_1fr_120px] items-start gap-3 rounded-md border border-oc-border bg-oc-elevated/42 p-3 text-xs">
+              <div key={item.id} className="grid grid-cols-[18px_92px_minmax(0,1fr)_130px] items-start gap-3 rounded-lg border border-oc-border/62 bg-oc-elevated/34 p-3 text-xs">
                 <GripVertical size={14} className="mt-1 text-oc-muted" />
                 <div className="grid gap-1">
-                  <input className="w-full rounded border border-oc-border bg-oc-bg px-2 py-1 font-mono text-oc-blue" value={item.startTime} onChange={(event) => updateItem(item.id, { startTime: event.target.value })} />
-                  <input className="w-full rounded border border-oc-border bg-oc-bg px-2 py-1 font-mono text-oc-blue" value={item.endTime} onChange={(event) => updateItem(item.id, { endTime: event.target.value })} />
+                  <input className="oc-input w-full px-2 py-1 font-mono text-oc-blue" value={item.startTime} onChange={(event) => updateItem(item.id, { startTime: event.target.value })} />
+                  <input className="oc-input w-full px-2 py-1 font-mono text-oc-blue" value={item.endTime} onChange={(event) => updateItem(item.id, { endTime: event.target.value })} />
                 </div>
                 <div>
-                  <input className="w-full rounded border border-oc-border bg-oc-bg px-2 py-1 font-medium text-oc-text" value={item.title} onChange={(event) => updateItem(item.id, { title: event.target.value })} />
+                  <input className="oc-input w-full px-2 py-1 font-medium text-oc-text" value={item.title} onChange={(event) => updateItem(item.id, { title: event.target.value })} />
                   {item.reason ? <p className="mt-1 text-oc-muted">{item.reason}</p> : null}
                 </div>
                 <div className="flex items-center gap-2">
-                  <select className="w-full rounded border border-oc-border bg-oc-bg px-2 py-1 text-oc-text" value={item.status} onChange={(event) => updateItem(item.id, { status: event.target.value as DailyPlan["items"][number]["status"] })}>
+                  <select className="oc-select w-full px-2 py-1 text-oc-text" value={item.status} onChange={(event) => updateItem(item.id, { status: event.target.value as DailyPlan["items"][number]["status"] })}>
                     <option value="planned">planned</option>
                     <option value="active">active</option>
                     <option value="completed">completed</option>

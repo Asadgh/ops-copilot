@@ -17,7 +17,7 @@ const statusStyles: Record<TaskStatus, string> = {
 };
 
 export function Badge({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <span className={cn("inline-flex h-5 items-center rounded border px-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.08em]", className)}>{children}</span>;
+  return <span className={cn("inline-flex h-6 items-center rounded-full border px-2 text-[11px] font-semibold capitalize", className)}>{children}</span>;
 }
 
 export function PriorityBadge({ priority }: { priority: Priority }) {

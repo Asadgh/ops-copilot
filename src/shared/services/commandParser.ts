@@ -1,6 +1,7 @@
 import type { ParsedCommand, Priority } from "../types";
 
 const priorityPattern = /\b(critical|high|medium|low)\b/i;
+const reminderLeadPattern = /\b(?:remind me(?: to)?|set (?:a )?reminder(?: to)?|add (?:a )?reminder(?: to)?|reminder(?: to)?)\b[\s,:-]*/i;
 
 function getPriority(input: string): Priority {
   const match = input.match(priorityPattern)?.[1]?.toLowerCase();
@@ -13,6 +14,54 @@ function stripLead(input: string, expressions: RegExp[]): string {
     output = output.replace(expression, "").trim();
   }
   return output.replace(/^for\s+/i, "").trim();
+}
+
+function tidyText(input: string): string {
+  return input
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .replace(/^[\s,;:.!?-]+|[\s,;:.!?-]+$/g, "")
+    .trim();
+}
+
+function splitReminderClause(input: string): { commandText: string; reminderText?: string } {
+  const match = input.match(reminderLeadPattern);
+  if (!match || match.index === undefined) return { commandText: input };
+  return {
+    commandText: tidyText(input.slice(0, match.index)),
+    reminderText: tidyText(input.slice(match.index))
+  };
+}
+
+function stripReminderTime(input: string): string {
+  return tidyText(
+    input
+      .replace(/\b(?:by|at|before|around)\s+(?:midday|noon|midnight|eod|end of day|close of business)\b/i, "")
+      .replace(/\b(?:midday|noon|midnight|eod|end of day|close of business)\b/i, "")
+      .replace(/\b(?:today|tomorrow)\b/i, "")
+      .replace(/\bin\s+\d+(?:\.\d+)?\s*(?:m|min|mins|minute|minutes|h|hr|hrs|hour|hours)\b/i, "")
+      .replace(/\b(?:at|by|before|around)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/i, "")
+  );
+}
+
+function extractTaskTitle(input: string): string {
+  const withoutReminder = splitReminderClause(input).commandText;
+  const title = stripLead(withoutReminder, [
+    /^(?:please\s+)?(?:new|create|add)\s+(?:a\s+)?(?:new\s+)?(?:task|todo|to-do)\b[\s,:-]*/i,
+    /^(?:please\s+)?(?:new|create|add)\s+/i,
+    /\b(critical|high|medium|low)\s+priority\b/i,
+    /\b(critical|high|medium|low)\b/i,
+    /^task\b[\s,:-]*/i,
+    /^(?:to\s+)?work on\b[\s,:-]*/i
+  ]);
+  return tidyText(title);
+}
+
+function reminderTitleForTask(task: string, reminderText?: string): string {
+  if (reminderText && /\bstart\b/i.test(reminderText)) return `Start: ${task}`;
+  if (reminderText && /\bfollow up\b/i.test(reminderText)) return `Follow up: ${task}`;
+  if (reminderText && /\breview\b/i.test(reminderText)) return `Review: ${task}`;
+  return `Reminder: ${task}`;
 }
 
 export function parseDurationMinutes(input: string): number | undefined {
@@ -32,8 +81,37 @@ export function parseReminderDueAt(input: string, now = Date.now()): number | un
   if (inMinutes) return now + Number(inMinutes[1]) * 60_000;
   const inHours = input.match(/\bin\s+(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b/i);
   if (inHours) return now + Number(inHours[1]) * 60 * 60_000;
-  const tomorrow = input.match(/\btomorrow\b/i);
-  if (tomorrow) return now + 24 * 60 * 60_000;
+  const lower = input.toLowerCase();
+  const hasTomorrow = /\btomorrow\b/.test(lower);
+  const hasToday = /\btoday\b/.test(lower);
+
+  const atClock = (hours: number, minutes = 0): number => {
+    const date = new Date(now);
+    if (hasTomorrow) date.setDate(date.getDate() + 1);
+    date.setHours(hours, minutes, 0, 0);
+    if (!hasTomorrow && !hasToday && date.getTime() <= now) date.setDate(date.getDate() + 1);
+    return date.getTime();
+  };
+
+  if (/\b(midday|noon)\b/i.test(input)) return atClock(12);
+  if (/\b(eod|end of day|close of business)\b/i.test(input)) return atClock(17);
+  if (/\bmidnight\b/i.test(input)) return /\bby\s+midnight\b/i.test(input) ? atClock(23, 59) : atClock(0);
+  if (/\bmorning\b/i.test(input)) return atClock(9);
+  if (/\bafternoon\b/i.test(input)) return atClock(14);
+  if (/\bevening\b/i.test(input)) return atClock(18);
+
+  const timeMatch = input.match(/\b(?:at|by|before|around)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i);
+  if (timeMatch) {
+    let hours = Number(timeMatch[1]);
+    const minutes = Number(timeMatch[2] ?? 0);
+    const meridiem = timeMatch[3]?.toLowerCase();
+    if (meridiem === "pm" && hours < 12) hours += 12;
+    if (meridiem === "am" && hours === 12) hours = 0;
+    if (!meridiem && hours > 0 && hours <= 6) hours += 12;
+    if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) return atClock(hours, minutes);
+  }
+
+  if (hasTomorrow) return now + 24 * 60 * 60_000;
   return undefined;
 }
 
@@ -49,15 +127,22 @@ export function parseCommand(input: string): ParsedCommand {
     return parsed(raw, "unknown", {}, "Enter an operational command.", 0);
   }
 
-  if (/^(new|create|add)\b.*\btask\b/i.test(raw)) {
+  if (/^(?:please\s+)?(new|create|add)\b.*\b(task|todo|to-do)\b/i.test(raw)) {
     const priority = getPriority(raw);
-    const task = stripLead(raw, [
-      /^(new|create|add)\s+/i,
-      /\b(critical|high|medium|low)\s+priority\b/i,
-      /\b(critical|high|medium|low)\b/i,
-      /\btask\b/i
-    ]);
-    return parsed(raw, "createTask", { task: task || "Untitled operational task", priority }, `Task queued: ${task || "Untitled operational task"}`);
+    const { reminderText } = splitReminderClause(raw);
+    const task = extractTaskTitle(raw) || "Untitled operational task";
+    const dueAt = parseReminderDueAt(raw);
+    return parsed(
+      raw,
+      "createTask",
+      {
+        task,
+        priority,
+        ...(dueAt ? { dueAt, reminderTitle: reminderTitleForTask(task, reminderText) } : {})
+      },
+      dueAt ? `Task and reminder queued: ${task}` : `Task queued: ${task}`,
+      dueAt ? 0.92 : 0.88
+    );
   }
 
   if (/^blocked\b|\badd blocker\b|\bwaiting on\b/i.test(raw)) {
@@ -67,11 +152,7 @@ export function parseCommand(input: string): ParsedCommand {
 
   if (/\bremind me\b|\badd reminder\b|\bsnooze\b/i.test(raw)) {
     const dueAt = parseReminderDueAt(raw);
-    const title = raw
-      .replace(/\bremind me\b/i, "")
-      .replace(/\badd reminder\b/i, "")
-      .replace(/\bin\s+\d+(?:\.\d+)?\s*(?:m|min|mins|minute|minutes|h|hr|hrs|hour|hours)\b/i, "")
-      .trim();
+    const title = stripReminderTime(raw.replace(reminderLeadPattern, ""));
     return parsed(raw, "setReminder", { dueAt, title: title || "Operational reminder" }, "Reminder details prepared", dueAt ? 0.9 : 0.58);
   }
 

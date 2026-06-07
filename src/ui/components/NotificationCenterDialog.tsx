@@ -19,11 +19,11 @@ export function NotificationCenterDialog({ open, onOpenChange }: { open: boolean
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/58" />
-        <Dialog.Content className="fixed right-4 top-14 z-50 max-h-[82vh] w-[min(420px,calc(100vw-32px))] overflow-hidden rounded-md border border-oc-border bg-oc-surface shadow-2xl">
-          <div className="flex items-start justify-between gap-4 border-b border-oc-border px-4 py-3">
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm" />
+        <Dialog.Content className="fixed right-4 top-16 z-50 max-h-[82vh] w-[min(420px,calc(100vw-32px))] overflow-hidden rounded-lg border border-oc-border/70 bg-oc-surface shadow-2xl shadow-black/35">
+          <div className="flex items-start justify-between gap-4 border-b border-oc-border/55 px-4 py-3">
             <div>
-              <Dialog.Title className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.08em] text-oc-text">
+              <Dialog.Title className="flex items-center gap-2 text-base font-semibold text-oc-text">
                 <Bell size={15} /> Notifications
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-xs text-oc-muted">Reminders, blocker follow-ups, and focus alerts.</Dialog.Description>
@@ -35,7 +35,7 @@ export function NotificationCenterDialog({ open, onOpenChange }: { open: boolean
           <div className="max-h-[66vh] overflow-auto p-3">
             <div className="space-y-2">
               {visibleReminders.map((reminder) => (
-                <article key={reminder.id} className="rounded border border-oc-border bg-oc-bg/55 p-3">
+                <article key={reminder.id} className="rounded-lg border border-oc-border/58 bg-oc-bg/55 p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-sm font-medium text-oc-text">{reminder.title}</p>
@@ -43,7 +43,7 @@ export function NotificationCenterDialog({ open, onOpenChange }: { open: boolean
                         <Clock3 size={13} /> {toTimeLabel(reminder.dueAt)} | {reminder.status}
                       </p>
                     </div>
-                    {reminder.dueAt <= Date.now() ? <span className="rounded bg-oc-warning/12 px-2 py-1 font-mono text-[10px] text-oc-warning">DUE</span> : null}
+                    {reminder.dueAt <= Date.now() ? <span className="rounded-full bg-oc-warning/12 px-2 py-1 text-[11px] font-semibold text-oc-warning">Due</span> : null}
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <Button size="sm" onClick={() => { setActiveView("tasks"); onOpenChange(false); }}>Resume</Button>

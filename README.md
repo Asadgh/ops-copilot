@@ -16,14 +16,19 @@ Load the built extension from `dist`:
 1. Open `chrome://extensions`.
 2. Enable Developer mode.
 3. Choose "Load unpacked".
-4. Select this project’s `dist` folder.
+4. Select this project's `dist` folder.
+
+## Build Artifacts
+
+The `dist` folder is intentionally committed so the extension can be loaded or packaged directly from the repository. Running `npm.cmd run build` refreshes hashed UI assets in `dist/assets`, so expect generated asset filenames to churn after production builds.
+
+For UI regression checks, run `npm.cmd run build` first, then `npm.cmd run smoke`. The smoke suite serves the built `dist` output and checks dashboard and side panel layouts in light and dark themes.
 
 ## Main Surfaces
 
 - `sidepanel.html`: compact operational workspace.
 - `dashboard.html`: full dashboard/options view.
-- `background.js`: MV3 service worker for storage access, side panel opening, alarms, notifications, AI/voice calls, context menus, and privileged runtime messages.
-- `content.js`: Shadow DOM floating launcher injected into supported pages.
+- `background.js`: MV3 service worker for storage access, side panel opening, alarms, notifications, AI/voice calls, current-page task capture, context menus, and privileged runtime messages.
 
 ## OpenAI
 

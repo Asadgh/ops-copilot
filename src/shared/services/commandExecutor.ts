@@ -39,7 +39,22 @@ export async function executeParsedCommand(
         },
         source
       );
-      return { ok: true, data: { task, message: `Created task: ${task.task}` } };
+      const dueAt = typeof parsed.payload.dueAt === "number" ? parsed.payload.dueAt : undefined;
+      const reminder = dueAt
+        ? await createReminder({
+            taskId: task.id,
+            title: String(parsed.payload.reminderTitle ?? `Reminder: ${task.task}`),
+            dueAt
+          })
+        : undefined;
+      return {
+        ok: true,
+        data: {
+          task,
+          reminder,
+          message: reminder ? `Created task and reminder: ${task.task}` : `Created task: ${task.task}`
+        }
+      };
     }
 
     if (parsed.action === "addBlocker") {

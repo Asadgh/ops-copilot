@@ -25,14 +25,14 @@ export function InsightsView() {
   }
 
   return (
-    <div className="space-y-4 p-4">
+    <div className="oc-page space-y-4">
       <Card>
         <SectionTitle
           title="AI Insights"
           subtitle={settings?.aiMode === "off" ? "AI mode is off. Showing local operational analysis." : hasApiKey ? "Summaries are routed through the background worker." : "No API key saved. Showing local operational analysis."}
           action={<Button onClick={refresh} disabled={loading}><RefreshCw size={14} /> Refresh</Button>}
         />
-        <div className="rounded-lg border border-oc-border bg-oc-elevated/42 p-4">
+        <div className="rounded-lg border border-oc-border/58 bg-oc-elevated/34 p-4">
           <p className="mb-3 flex items-center gap-2 text-sm font-semibold"><BrainCircuit size={16} /> Operational Summary</p>
           <pre className="whitespace-pre-wrap font-sans text-sm leading-6 text-oc-text">{summary}</pre>
         </div>
